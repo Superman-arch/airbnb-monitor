@@ -218,10 +218,24 @@ Respond in JSON format:
                 for idx, door in enumerate(doors):
                     # Convert percentage bbox to pixels
                     bbox_pct = door.get('bbox_percent', {})
-                    x = int(bbox_pct.get('x', 0) * width / 100)
-                    y = int(bbox_pct.get('y', 0) * height / 100)
-                    w = int(bbox_pct.get('width', 20) * width / 100)
-                    h = int(bbox_pct.get('height', 40) * height / 100)
+                    
+                    # Get percentages with defaults
+                    x_pct = bbox_pct.get('x', 10)
+                    y_pct = bbox_pct.get('y', 10) 
+                    w_pct = bbox_pct.get('width', 15)
+                    h_pct = bbox_pct.get('height', 40)
+                    
+                    # Convert to pixels and ensure within bounds
+                    x = int(x_pct * width / 100)
+                    y = int(y_pct * height / 100)
+                    w = int(w_pct * width / 100)
+                    h = int(h_pct * height / 100)
+                    
+                    # Validate coordinates
+                    x = max(0, min(x, width - 10))
+                    y = max(0, min(y, height - 10))
+                    w = max(10, min(w, width - x))
+                    h = max(10, min(h, height - y))
                     
                     # Create zone
                     zone = DoorZone(

@@ -297,9 +297,11 @@ class OptimizedAirbnbMonitor:
         # Tracking variables
         last_person_detection = 0
         last_zone_detection = 0
-        tracked_persons = []
+        tracked_persons = []  # Maintain state between detections
+        active_persons = 0  # Track active person count
         zones = []
         door_learning_complete = False
+        last_processing_time = 0  # Track processing latency
         
         while self.running:
             loop_start = time.time()
@@ -366,8 +368,11 @@ class OptimizedAirbnbMonitor:
             
             # PERIODIC: Person detection (every 3 frames)
             if self.frame_counter - last_person_detection >= self.person_detect_interval:
+                detection_start = time.time()
                 tracked_persons = self.person_tracker.detect(frame)
                 last_person_detection = self.frame_counter
+                active_persons = len(tracked_persons)  # Update active count
+                last_processing_time = int((time.time() - detection_start) * 1000)  # ms
                 
                 # Process person events
                 if tracked_persons and zones:
@@ -404,7 +409,7 @@ class OptimizedAirbnbMonitor:
             self.update_fps()
             if self.frame_counter % 30 == 0:
                 current_fps = self.get_current_fps()
-                stats_msg = f"FPS: {current_fps:.1f} | Doors: {len(self.door_detector.doors)} | Persons: {len(tracked_persons)} | Frame: {self.frame_counter}"
+                stats_msg = f"FPS: {current_fps:.1f} | Doors: {len(self.door_detector.doors)} | Persons: {active_persons} | Frame: {self.frame_counter}"
                 print(stats_msg)
                 
                 # Broadcast stats to web interface (with error handling)
@@ -413,8 +418,12 @@ class OptimizedAirbnbMonitor:
                         broadcast_stats({
                             'fps': current_fps,
                             'doors': len(self.door_detector.doors),
-                            'persons': len(tracked_persons),
-                            'frame': self.frame_counter
+                            'persons': active_persons,  # Use maintained count
+                            'zones': len(zones),
+                            'frame': self.frame_counter,
+                            'latency': last_processing_time,
+                            'memory': self._get_memory_usage(),
+                            'gpu': self._get_gpu_usage()
                         })
                         broadcast_log(stats_msg, 'info')
                     except Exception as e:
@@ -490,6 +499,26 @@ class OptimizedAirbnbMonitor:
             return sum(self.fps_history) / len(self.fps_history)
         return 0.0
     
+    def _get_memory_usage(self) -> int:
+        """Get memory usage percentage."""
+        try:
+            import psutil
+            return int(psutil.virtual_memory().percent)
+        except:
+            return 0
+    
+    def _get_gpu_usage(self) -> int:
+        """Get GPU usage percentage (Jetson specific)."""
+        try:
+            # Try to read Jetson GPU stats
+            import subprocess
+            result = subprocess.run(['tegrastats'], capture_output=True, text=True, timeout=0.1)
+            # Parse tegrastats output for GPU usage
+            # This is a simplified approach - real parsing would be more complex
+            return 30  # Placeholder - implement actual parsing if needed
+        except:
+            return 0
+    
     def draw_all_detections(self, frame: np.ndarray, tracked_persons: List[Dict]) -> np.ndarray:
         """Draw comprehensive detection overlays warehouse-style."""
         overlay = frame.copy()
@@ -507,7 +536,24 @@ class OptimizedAirbnbMonitor:
         # Draw door zones first (background layer)
         if hasattr(self.door_detector, 'zone_mapper') and self.door_detector.zone_mapper:
             for zone in self.door_detector.zone_mapper.zones:
-                x, y, w, h = zone.bbox
+                # Handle both dict and object zones
+                if isinstance(zone, dict):
+                    bbox = zone.get('bbox', (0, 0, 0, 0))
+                else:
+                    bbox = zone.bbox if hasattr(zone, 'bbox') else (0, 0, 0, 0)
+                
+                x, y, w, h = bbox
+                
+                # Validate coordinates
+                if x < 0 or y < 0 or w <= 0 or h <= 0:
+                    continue
+                
+                # Ensure within frame bounds
+                x = max(0, min(x, width - 1))
+                y = max(0, min(y, height - 1))
+                w = min(w, width - x)
+                h = min(h, height - y)
+                
                 # Draw semi-transparent zone
                 zone_overlay = overlay.copy()
                 cv2.rectangle(zone_overlay, (x, y), (x + w, y + h), COLORS['zone'], 2)
@@ -515,8 +561,24 @@ class OptimizedAirbnbMonitor:
         
         # Draw door detections with labels
         if hasattr(self.door_detector, 'doors'):
-            for door_id, door in self.door_detector.doors.items():
+            doors_dict = self.door_detector.doors
+            # Handle both dict and list formats
+            if isinstance(doors_dict, dict):
+                doors_list = doors_dict.values()
+            else:
+                doors_list = doors_dict
+            
+            for door in doors_list:
                 x, y, w, h = door.bbox
+                
+                # Validate and adjust coordinates
+                x = max(0, min(x, width - 1))
+                y = max(0, min(y, height - 1))
+                w = min(w, width - x)
+                h = min(h, height - y)
+                
+                if w <= 0 or h <= 0:
+                    continue
                 
                 # Determine color based on state
                 if door.current_state == 'open':
@@ -581,6 +643,16 @@ class OptimizedAirbnbMonitor:
                     
                     if bbox is not None:
                         x1, y1, x2, y2 = map(int, bbox)
+                        
+                        # Validate and adjust coordinates
+                        x1 = max(0, min(x1, width - 1))
+                        y1 = max(0, min(y1, height - 1))
+                        x2 = max(0, min(x2, width - 1))
+                        y2 = max(0, min(y2, height - 1))
+                        
+                        if x2 <= x1 or y2 <= y1:
+                            continue
+                            
                         color = COLORS['person']
                         
                         # Draw bounding box

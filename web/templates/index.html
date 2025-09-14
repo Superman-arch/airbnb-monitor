@@ -704,12 +704,35 @@
             }
             
             // Update other metrics
-            document.getElementById('latencyValue').textContent = `${analyticsData.latency}ms`;
+            // Update latency with color coding
+            const latencyElem = document.getElementById('latencyValue');
+            latencyElem.textContent = `${analyticsData.latency}ms`;
+            latencyElem.className = 'analytics-value';
+            if (analyticsData.latency < 50) {
+                latencyElem.classList.add('good');
+            } else if (analyticsData.latency < 100) {
+                latencyElem.classList.add('warning');
+            } else {
+                latencyElem.classList.add('error');
+            }
+            
             document.getElementById('doorsDetected').textContent = analyticsData.doors;
             document.getElementById('personsDetected').textContent = analyticsData.persons;
             document.getElementById('zonesActive').textContent = analyticsData.zones;
-            document.getElementById('memoryUsage').textContent = `${analyticsData.memoryUsage}%`;
-            document.getElementById('gpuUsage').textContent = `${analyticsData.gpuUsage}%`;
+            
+            // Update memory with color coding
+            const memElem = document.getElementById('memoryUsage');
+            memElem.textContent = analyticsData.memoryUsage > 0 ? `${analyticsData.memoryUsage}%` : 'N/A';
+            memElem.className = 'analytics-value';
+            if (analyticsData.memoryUsage > 0 && analyticsData.memoryUsage < 60) {
+                memElem.classList.add('good');
+            } else if (analyticsData.memoryUsage >= 60 && analyticsData.memoryUsage < 80) {
+                memElem.classList.add('warning');
+            } else if (analyticsData.memoryUsage >= 80) {
+                memElem.classList.add('error');
+            }
+            
+            document.getElementById('gpuUsage').textContent = analyticsData.gpuUsage > 0 ? `${analyticsData.gpuUsage}%` : 'N/A';
         }
         
         function updateDetectionIndicators() {
@@ -754,15 +777,8 @@
             updateStats();
             updateAnalyticsOverlay();
             
-            // Start monitoring detection states
-            setInterval(() => {
-                const now = Date.now();
-                // Simulate motion detection periodically
-                if (Math.random() > 0.7) {
-                    detectionState.motion.active = true;
-                    detectionState.motion.lastSeen = now;
-                }
-            }, 3000);
+            // Update analytics every second
+            setInterval(updateAnalyticsOverlay, 1000);
             
             // No polling - updates come via WebSocket
         };
@@ -916,8 +932,15 @@
             const list = document.getElementById('doorList');
             list.innerHTML = '';
             
+            // Show doors even if empty array, but check zones
             if (doors.length === 0) {
-                list.innerHTML = '<li style="padding: 1rem; text-align: center; color: #666;">No doors detected yet</li>';
+                // Check if zones are configured
+                const zoneInfo = document.getElementById('doorZoneInfo');
+                if (zoneInfo && zoneInfo.style.display !== 'none') {
+                    list.innerHTML = '<li style="padding: 1rem; text-align: center; color: #666;">Doors configured - waiting for detection...</li>';
+                } else {
+                    list.innerHTML = '<li style="padding: 1rem; text-align: center; color: #666;">No doors detected yet</li>';
+                }
             } else {
                 doors.forEach(door => {
                     const item = document.createElement('li');
@@ -926,10 +949,14 @@
                     const stateColor = door.state === 'open' ? '#e74c3c' : door.state === 'closed' ? '#27ae60' : '#f39c12';
                     const stateIcon = door.state === 'open' ? '🔓' : door.state === 'closed' ? '🔒' : '🚪';
                     
-                    const doorName = door.door_name || door.zone_name || door.door_id || door.id;
+                    // Generate unique display ID
+                    const doorDisplayId = door.spatial_hash ? door.spatial_hash.substring(0, 6).toUpperCase() : 
+                                         door.door_id ? door.door_id : 
+                                         door.id || 'UNKNOWN';
+                    const doorName = door.door_name || door.zone_name || `Door ${doorDisplayId}`;
                     item.innerHTML = `
                         <div>
-                            ${stateIcon} <span class="zone-name">${doorName}</span>
+                            ${stateIcon} <span class="zone-name">${doorName}</span> <span style="color: #888; font-size: 0.75rem;">[${doorDisplayId}]</span>
                             <span style="display: inline-block; padding: 0.25rem 0.5rem; background: ${stateColor}; color: white; border-radius: 4px; font-size: 0.8rem; margin-left: 0.5rem;">
                                 ${door.state ? door.state.toUpperCase() : 'UNKNOWN'}
                             </span>
@@ -1157,8 +1184,8 @@
                 analyticsData.persons = stats.persons || 0;
                 analyticsData.zones = stats.zones || 0;
                 analyticsData.latency = stats.latency || Math.round(1000 / Math.max(stats.fps, 1));
-                analyticsData.memoryUsage = stats.memory || Math.round(Math.random() * 30 + 40);
-                analyticsData.gpuUsage = stats.gpu || Math.round(Math.random() * 20 + 30);
+                analyticsData.memoryUsage = stats.memory || 0;  // Use real data or 0
+                analyticsData.gpuUsage = stats.gpu || 0;  // Use real data or 0
                 
                 updateAnalyticsOverlay();
                 

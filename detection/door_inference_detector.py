@@ -164,10 +164,23 @@ class DoorInferenceDetector:
             current_door_ids = set()
             
             for pred in predictions:
-                # Extract detection data
-                x = pred['x'] - pred['width'] / 2
-                y = pred['y'] - pred['height'] / 2
-                bbox = (int(x), int(y), int(pred['width']), int(pred['height']))
+                # Extract detection data - inference returns center coordinates
+                center_x = pred['x']
+                center_y = pred['y']
+                width = pred['width']
+                height = pred['height']
+                
+                # Convert center coordinates to top-left corner
+                x = int(center_x - width / 2)
+                y = int(center_y - height / 2)
+                
+                # Ensure coordinates are within frame bounds
+                x = max(0, x)
+                y = max(0, y)
+                width = min(int(width), frame.shape[1] - x)
+                height = min(int(height), frame.shape[0] - y)
+                
+                bbox = (x, y, width, height)
                 
                 class_name = pred['class']
                 confidence = pred['confidence']

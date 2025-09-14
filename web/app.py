@@ -197,11 +197,32 @@ def get_doors():
     
     # Try monitor instance
     if monitor_instance and hasattr(monitor_instance, 'door_detector'):
+        # First try to get configured zones to show even without active detections
+        zones = []
+        if hasattr(monitor_instance.door_detector, 'get_zones'):
+            zones = monitor_instance.door_detector.get_zones()
+        
         if hasattr(monitor_instance.door_detector, 'get_doors'):
             doors = monitor_instance.door_detector.get_doors()
         else:
             # Handle dictionary of doors
             doors = monitor_instance.door_detector.doors.values() if isinstance(monitor_instance.door_detector.doors, dict) else monitor_instance.door_detector.doors
+        
+        # If we have zones but no active doors, show zones as configured doors
+        if zones and len(list(doors)) == 0:
+            for zone in zones:
+                zone_dict = zone if isinstance(zone, dict) else zone.to_dict() if hasattr(zone, 'to_dict') else {'id': str(zone)}
+                door_state = {
+                    'door_id': zone_dict.get('id', 'unknown'),
+                    'door_name': zone_dict.get('name', 'Unknown Door'),
+                    'state': 'configured',
+                    'confidence': 0,
+                    'bbox': zone_dict.get('bbox', []),
+                    'zone_id': zone_dict.get('id'),
+                    'spatial_hash': None,
+                    'metadata': {'configured': True}
+                }
+                door_states.append(door_state)
         
         for door in doors:
             if hasattr(door, 'to_dict'):
