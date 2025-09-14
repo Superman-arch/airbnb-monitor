@@ -215,14 +215,24 @@ def calibrate_door_zones():
     if not monitor_instance or not hasattr(monitor_instance, 'door_detector'):
         return jsonify({'success': False, 'error': 'Door detector not available'}), 500
     
-    # Get current frame
+    # Get current frame from monitor
     frame = None
-    with frame_lock:
-        if current_frame is not None:
-            frame = current_frame.copy()
+    
+    # Try to get frame from monitor first
+    if monitor_instance:
+        if hasattr(monitor_instance, 'current_frame'):
+            with monitor_instance.frame_lock:
+                if monitor_instance.current_frame is not None:
+                    frame = monitor_instance.current_frame.copy()
+    
+    # Fallback to global frame
+    if frame is None:
+        with frame_lock:
+            if current_frame is not None:
+                frame = current_frame.copy()
     
     if frame is None:
-        return jsonify({'success': False, 'error': 'No camera frame available'}), 400
+        return jsonify({'success': False, 'error': 'No camera frame available. Please wait for camera to initialize.'}), 400
     
     # Calibrate zones
     if hasattr(monitor_instance.door_detector, 'calibrate_zones'):
@@ -296,13 +306,17 @@ def video_feed():
         while True:
             frame = None
             
-            # Try to get frame from monitor if available
-            if monitor and hasattr(monitor, 'get_current_frame'):
-                frame = monitor.get_current_frame()
-            elif monitor and hasattr(monitor, 'current_frame'):
-                with monitor.frame_lock:
-                    if monitor.current_frame is not None:
-                        frame = monitor.current_frame.copy()
+            # Try to get display frame (with overlays) first
+            if monitor:
+                if hasattr(monitor, 'display_frame'):
+                    with monitor.frame_lock:
+                        if monitor.display_frame is not None:
+                            frame = monitor.display_frame.copy()
+                # Fallback to raw frame if display frame not available
+                if frame is None and hasattr(monitor, 'current_frame'):
+                    with monitor.frame_lock:
+                        if monitor.current_frame is not None:
+                            frame = monitor.current_frame.copy()
             else:
                 # Fallback to global current_frame
                 with frame_lock:
@@ -310,7 +324,9 @@ def video_feed():
                         frame = current_frame.copy()
             
             if frame is not None:
-                _, buffer = cv2.imencode('.jpg', frame)
+                # Reduce quality slightly for better streaming performance
+                encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]
+                _, buffer = cv2.imencode('.jpg', frame, encode_params)
                 frame_bytes = buffer.tobytes()
                 yield (b'--frame\r\n'
                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
@@ -365,6 +381,22 @@ def broadcast_event(event):
             event['event_type'] = 'person'
     
     socketio.emit('new_event', event, broadcast=True)
+
+
+def broadcast_log(message, level='info'):
+    """Broadcast a log message to all connected clients."""
+    from datetime import datetime
+    log_entry = {
+        'timestamp': datetime.now().isoformat(),
+        'level': level,
+        'message': message
+    }
+    socketio.emit('log_message', log_entry, broadcast=True)
+
+
+def broadcast_stats(stats):
+    """Broadcast system statistics to all connected clients."""
+    socketio.emit('stats_update', stats, broadcast=True)
 
 
 if __name__ == '__main__':

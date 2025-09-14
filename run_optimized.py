@@ -43,11 +43,13 @@ from storage.video_manager import CircularVideoBuffer
 try:
     from flask import Flask
     from flask_cors import CORS
-    from web.app import app, broadcast_event
+    from web.app import app, broadcast_event, broadcast_log, broadcast_stats
     WEB_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Web interface not available: {e}")
     WEB_AVAILABLE = False
+    broadcast_log = lambda msg, level='info': None  # No-op if web not available
+    broadcast_stats = lambda stats: None
 
 
 class OptimizedAirbnbMonitor:
@@ -99,6 +101,7 @@ class OptimizedAirbnbMonitor:
         # Thread safety
         self.frame_lock = Lock()
         self.current_frame = None
+        self.display_frame = None  # Frame with detection overlays
         
         # Web server
         self.web_thread = None
@@ -280,7 +283,11 @@ class OptimizedAirbnbMonitor:
                 if event['event'] in ['door_opened', 'door_closed', 'door_moving', 'door_left_open', 'door_discovered']:
                     # Send door event to specific webhook
                     self.send_door_event(event, frame)
-                    print(f"Door event: {event['event']} - {event.get('door_id', 'unknown')}")
+                    door_name = event.get('door_name', event.get('door_id', 'unknown'))
+                    log_msg = f"Door event: {door_name} - {event['event']}"
+                    print(log_msg)
+                    if WEB_AVAILABLE:
+                        broadcast_log(log_msg, 'warning' if 'open' in event['event'] else 'info')
                     
                     # Broadcast to web interface
                     if WEB_AVAILABLE:
@@ -328,16 +335,28 @@ class OptimizedAirbnbMonitor:
             
             # Draw overlays
             display_frame = frame.copy()
-            display_frame = self.door_detector.draw_doors(display_frame)
-            if tracked_persons:
-                display_frame = self.person_tracker.draw_tracks(display_frame, tracked_persons)
+            display_frame = self.draw_all_detections(display_frame, tracked_persons)
+            
+            # Store display frame for web
+            with self.frame_lock:
+                self.display_frame = display_frame.copy()
             
             # Calculate and display FPS
             self.update_fps()
             if self.frame_counter % 30 == 0:
                 current_fps = self.get_current_fps()
-                print(f"FPS: {current_fps:.1f} | Doors: {len(self.door_detector.doors)} | "
-                      f"Persons: {len(tracked_persons)} | Frame: {self.frame_counter}")
+                stats_msg = f"FPS: {current_fps:.1f} | Doors: {len(self.door_detector.doors)} | Persons: {len(tracked_persons)} | Frame: {self.frame_counter}"
+                print(stats_msg)
+                
+                # Broadcast stats to web interface
+                if WEB_AVAILABLE:
+                    broadcast_stats({
+                        'fps': current_fps,
+                        'doors': len(self.door_detector.doors),
+                        'persons': len(tracked_persons),
+                        'frame': self.frame_counter
+                    })
+                    broadcast_log(stats_msg, 'info')
             
             # Show frame (optional - disable for better performance)
             if self.config.get('display', {}).get('enabled', False):
@@ -406,6 +425,147 @@ class OptimizedAirbnbMonitor:
         if self.fps_history:
             return sum(self.fps_history) / len(self.fps_history)
         return 0.0
+    
+    def draw_all_detections(self, frame: np.ndarray, tracked_persons: List[Dict]) -> np.ndarray:
+        """Draw comprehensive detection overlays warehouse-style."""
+        overlay = frame.copy()
+        height, width = frame.shape[:2]
+        
+        # Define colors for different object types
+        COLORS = {
+            'door_open': (0, 255, 0),      # Green
+            'door_closed': (0, 0, 255),    # Red  
+            'door_unknown': (0, 255, 255), # Yellow
+            'person': (255, 165, 0),       # Orange
+            'zone': (255, 0, 255),         # Magenta
+        }
+        
+        # Draw door zones first (background layer)
+        if hasattr(self.door_detector, 'zone_mapper') and self.door_detector.zone_mapper:
+            for zone in self.door_detector.zone_mapper.zones:
+                x, y, w, h = zone.bbox
+                # Draw semi-transparent zone
+                zone_overlay = overlay.copy()
+                cv2.rectangle(zone_overlay, (x, y), (x + w, y + h), COLORS['zone'], 2)
+                cv2.addWeighted(zone_overlay, 0.3, overlay, 0.7, 0, overlay)
+        
+        # Draw door detections with labels
+        if hasattr(self.door_detector, 'doors'):
+            for door_id, door in self.door_detector.doors.items():
+                x, y, w, h = door.bbox
+                
+                # Determine color based on state
+                if door.current_state == 'open':
+                    color = COLORS['door_open']
+                    state_text = "OPEN"
+                elif door.current_state == 'closed':
+                    color = COLORS['door_closed']
+                    state_text = "CLOSED"
+                else:
+                    color = COLORS['door_unknown']
+                    state_text = "UNKNOWN"
+                
+                # Draw bounding box
+                cv2.rectangle(overlay, (x, y), (x + w, y + h), color, 2)
+                
+                # Get door name
+                door_name = getattr(door, 'zone_name', None) or door_id
+                
+                # Draw label background
+                label = f"{door_name} | {state_text}"
+                if hasattr(door, 'confidence') and door.confidence > 0:
+                    label += f" {door.confidence:.0%}"
+                
+                label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+                label_y = y - 10 if y > 30 else y + h + 20
+                
+                # Semi-transparent background for label
+                label_bg = overlay.copy()
+                cv2.rectangle(label_bg, 
+                            (x, label_y - label_size[1] - 4),
+                            (x + label_size[0] + 8, label_y + 4),
+                            color, -1)
+                cv2.addWeighted(label_bg, 0.6, overlay, 0.4, 0, overlay)
+                
+                # Draw text
+                cv2.putText(overlay, label, (x + 4, label_y),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                
+                # Draw ID badge
+                id_text = door_id.replace('door_', 'D')
+                cv2.rectangle(overlay, (x + w - 30, y + 2), (x + w - 2, y + 22), color, -1)
+                cv2.putText(overlay, id_text, (x + w - 28, y + 17),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        
+        # Draw person tracking with IDs
+        for person in tracked_persons:
+            person_id = person.get('id', 'unknown')
+            track = person.get('track')
+            
+            if track and hasattr(track, 'tlbr'):
+                x1, y1, x2, y2 = map(int, track.tlbr)
+                color = COLORS['person']
+                
+                # Draw bounding box
+                cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
+                
+                # Draw tracking trail if available
+                if hasattr(track, 'centroid_history') and len(track.centroid_history) > 1:
+                    points = np.array(track.centroid_history[-10:], np.int32)
+                    cv2.polylines(overlay, [points], False, color, 1)
+                
+                # Draw label
+                label = f"Person #{person_id}"
+                confidence = person.get('confidence', 0)
+                if confidence > 0:
+                    label += f" {confidence:.0%}"
+                
+                label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+                
+                # Semi-transparent background
+                label_bg = overlay.copy()
+                cv2.rectangle(label_bg,
+                            (x1, y1 - label_size[1] - 4),
+                            (x1 + label_size[0] + 8, y1 + 4),
+                            color, -1)
+                cv2.addWeighted(label_bg, 0.6, overlay, 0.4, 0, overlay)
+                
+                # Draw text
+                cv2.putText(overlay, label, (x1 + 4, y1 - 2),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                
+                # Draw ID badge
+                cv2.rectangle(overlay, (x2 - 30, y1 + 2), (x2 - 2, y1 + 22), color, -1)
+                cv2.putText(overlay, f"P{person_id}", (x2 - 28, y1 + 17),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        
+        # Draw stats overlay
+        self.draw_stats_overlay(overlay)
+        
+        return overlay
+    
+    def draw_stats_overlay(self, frame: np.ndarray):
+        """Draw statistics overlay on frame."""
+        height, width = frame.shape[:2]
+        
+        # Create semi-transparent background for stats
+        stats_bg = frame.copy()
+        cv2.rectangle(stats_bg, (10, 10), (250, 100), (0, 0, 0), -1)
+        cv2.addWeighted(stats_bg, 0.5, frame, 0.5, 0, frame)
+        
+        # Draw stats text
+        y_offset = 30
+        stats = [
+            f"FPS: {self.get_current_fps():.1f}",
+            f"Doors: {len(self.door_detector.doors)}",
+            f"Persons: {self.person_tracker.tracker.n_tracked if hasattr(self.person_tracker, 'tracker') else 0}",
+            f"Frame: {self.frame_counter}"
+        ]
+        
+        for stat in stats:
+            cv2.putText(frame, stat, (20, y_offset),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            y_offset += 20
     
     def draw_stats(self, frame: np.ndarray):
         """Draw performance statistics on frame."""

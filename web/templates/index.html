@@ -36,6 +36,58 @@
             gap: 2rem;
         }
         
+        /* Console styles */
+        .console-container {
+            background: #1e1e1e;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+            max-height: 300px;
+            position: relative;
+        }
+        
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            color: #fff;
+        }
+        
+        .console-logs {
+            background: #0d0d0d;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 0.5rem;
+            height: 250px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+        }
+        
+        .log-entry {
+            margin-bottom: 2px;
+            padding: 2px 4px;
+            white-space: pre-wrap;
+        }
+        
+        .log-info {
+            color: #4CAF50;
+        }
+        
+        .log-warning {
+            color: #FF9800;
+        }
+        
+        .log-error {
+            color: #f44336;
+        }
+        
+        .log-timestamp {
+            color: #888;
+            margin-right: 8px;
+        }
+        
         .card {
             background: white;
             border-radius: 8px;
@@ -58,6 +110,8 @@
         #videoFeed {
             width: 100%;
             height: auto;
+            max-height: 500px;
+            object-fit: contain;
         }
         
         #canvas {
@@ -340,6 +394,22 @@
                 </div>
             </div>
         </div>
+        
+        <!-- Live Console Logs -->
+        <div class="console-container">
+            <div class="console-header">
+                <h3 style="margin: 0;">📊 Live System Logs</h3>
+                <div>
+                    <button class="btn btn-sm btn-primary" onclick="clearLogs()">Clear</button>
+                    <button class="btn btn-sm btn-primary" onclick="toggleAutoScroll()" id="autoScrollBtn">Auto-scroll: ON</button>
+                </div>
+            </div>
+            <div class="console-logs" id="consoleLogs">
+                <div class="log-entry log-info">
+                    <span class="log-timestamp">[System]</span>Monitoring system initialized...
+                </div>
+            </div>
+        </div>
     </div>
     
     <!-- Zone Edit Modal -->
@@ -367,6 +437,41 @@
     
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script>
+        // Console logging
+        let autoScroll = true;
+        const maxLogs = 500;
+        
+        function addLogEntry(message, level = 'info', timestamp = null) {
+            const logsContainer = document.getElementById('consoleLogs');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${level}`;
+            
+            const time = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+            entry.innerHTML = `<span class="log-timestamp">[${time}]</span>${message}`;
+            
+            logsContainer.appendChild(entry);
+            
+            // Remove old logs if exceeding max
+            while (logsContainer.children.length > maxLogs) {
+                logsContainer.removeChild(logsContainer.firstChild);
+            }
+            
+            // Auto-scroll to bottom
+            if (autoScroll) {
+                logsContainer.scrollTop = logsContainer.scrollHeight;
+            }
+        }
+        
+        function clearLogs() {
+            const logsContainer = document.getElementById('consoleLogs');
+            logsContainer.innerHTML = '<div class="log-entry log-info"><span class="log-timestamp">[System]</span>Logs cleared</div>';
+        }
+        
+        function toggleAutoScroll() {
+            autoScroll = !autoScroll;
+            document.getElementById('autoScrollBtn').textContent = `Auto-scroll: ${autoScroll ? 'ON' : 'OFF'}`;
+        }
+        
         // WebSocket connection
         const socket = io();
         
@@ -743,6 +848,24 @@
                 const action = event.action || event.event?.replace('door_', '') || 'changed';
                 updateDoorStatus(doorId, action);
                 loadDoors();
+            }
+            
+            // Log event to console
+            let logLevel = 'info';
+            if (event.event && event.event.includes('open')) logLevel = 'warning';
+            if (event.event && event.event.includes('entry')) logLevel = 'warning';
+            const eventMsg = `${event.event || 'Event'}: ${event.door_name || event.door_id || event.person_id || 'Unknown'}`;
+            addLogEntry(eventMsg, logLevel);
+        });
+        
+        socket.on('log_message', function(log) {
+            addLogEntry(log.message, log.level, log.timestamp);
+        });
+        
+        socket.on('stats_update', function(stats) {
+            // Update live stats display
+            if (stats.fps !== undefined) {
+                addLogEntry(`System Stats - FPS: ${stats.fps.toFixed(1)} | Doors: ${stats.doors} | Persons: ${stats.persons} | Frame: ${stats.frame}`, 'info');
             }
         });
         
