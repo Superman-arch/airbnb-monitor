@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Airbnb Monitor - Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+        
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 2rem;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .card h2 {
+            margin-bottom: 1rem;
+            color: #2c3e50;
+        }
+        
+        #videoContainer {
+            position: relative;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        #videoFeed {
+            width: 100%;
+            height: auto;
+        }
+        
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: crosshair;
+        }
+        
+        .zone-list {
+            list-style: none;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .zone-item {
+            padding: 0.75rem;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .zone-item:hover {
+            background: #f9f9f9;
+        }
+        
+        .zone-name {
+            font-weight: 500;
+        }
+        
+        .zone-type {
+            font-size: 0.85rem;
+            color: #666;
+            margin-left: 0.5rem;
+        }
+        
+        .zone-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background-color 0.2s;
+        }
+        
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+        
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem;
+        }
+        
+        .event-list {
+            list-style: none;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .event-item {
+            padding: 0.75rem;
+            border-left: 3px solid #3498db;
+            margin-bottom: 0.5rem;
+            background: #f9f9f9;
+        }
+        
+        .event-entry {
+            border-left-color: #27ae60;
+        }
+        
+        .event-exit {
+            border-left-color: #e74c3c;
+        }
+        
+        .event-time {
+            font-size: 0.85rem;
+            color: #666;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 0.25rem;
+        }
+        
+        .controls {
+            margin-top: 1rem;
+            display: flex;
+            gap: 1rem;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.4);
+        }
+        
+        .modal-content {
+            background-color: white;
+            margin: 15% auto;
+            padding: 2rem;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 500px;
+        }
+        
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .close:hover {
+            color: #000;
+        }
+        
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 0.25rem;
+            font-weight: 500;
+        }
+        
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Airbnb Monitor Dashboard</h1>
+    </div>
+    
+    <div class="container">
+        <!-- Statistics -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="activeZones">0</div>
+                <div class="stat-label">Active Zones</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="activePersons">0</div>
+                <div class="stat-label">Active Persons</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalEvents">0</div>
+                <div class="stat-label">Events (Last Hour)</div>
+            </div>
+        </div>
+        
+        <div class="grid">
+            <!-- Video Feed -->
+            <div class="card">
+                <h2>Live Camera View</h2>
+                <div id="videoContainer">
+                    <img id="videoFeed" src="/video_feed" alt="Camera Feed">
+                    <canvas id="canvas"></canvas>
+                </div>
+                <div class="controls">
+                    <button class="btn btn-primary" onclick="startDrawing()">Draw Zone</button>
+                    <button class="btn btn-primary" onclick="clearDrawing()">Clear</button>
+                    <button class="btn btn-primary" onclick="saveZone()">Save Zone</button>
+                    <button class="btn btn-danger" onclick="testWebhook()">Test Webhook</button>
+                </div>
+            </div>
+            
+            <!-- Zones Management -->
+            <div>
+                <div class="card" style="margin-bottom: 2rem;">
+                    <h2>Door Zones</h2>
+                    <ul class="zone-list" id="zoneList">
+                        <!-- Zones will be populated here -->
+                    </ul>
+                </div>
+                
+                <!-- Recent Events -->
+                <div class="card">
+                    <h2>Recent Events</h2>
+                    <ul class="event-list" id="eventList">
+                        <!-- Events will be populated here -->
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Zone Edit Modal -->
+    <div id="zoneModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2>Configure Zone</h2>
+            <form id="zoneForm">
+                <div class="form-group">
+                    <label for="zoneName">Zone Name:</label>
+                    <input type="text" id="zoneName" placeholder="e.g., Room 3B" required>
+                </div>
+                <div class="form-group">
+                    <label for="zoneType">Zone Type:</label>
+                    <select id="zoneType">
+                        <option value="main_entrance">Main Entrance</option>
+                        <option value="room_door">Room Door</option>
+                        <option value="common_area">Common Area</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Save Zone</button>
+            </form>
+        </div>
+    </div>
+    
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        // WebSocket connection
+        const socket = io();
+        
+        // Zone drawing
+        let isDrawing = false;
+        let points = [];
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Initialize
+        window.onload = function() {
+            setupCanvas();
+            loadZones();
+            loadEvents();
+            updateStats();
+            
+            // Refresh data periodically
+            setInterval(() => {
+                loadEvents();
+                updateStats();
+            }, 5000);
+        };
+        
+        function setupCanvas() {
+            const video = document.getElementById('videoFeed');
+            canvas.width = video.width;
+            canvas.height = video.height;
+        }
+        
+        function startDrawing() {
+            isDrawing = true;
+            points = [];
+            clearCanvas();
+        }
+        
+        function clearDrawing() {
+            points = [];
+            clearCanvas();
+        }
+        
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        
+        canvas.addEventListener('click', function(e) {
+            if (!isDrawing) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            points.push([x, y]);
+            
+            // Draw point
+            ctx.fillStyle = 'red';
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Draw lines
+            if (points.length > 1) {
+                ctx.strokeStyle = 'yellow';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(points[0][0], points[0][1]);
+                for (let i = 1; i < points.length; i++) {
+                    ctx.lineTo(points[i][0], points[i][1]);
+                }
+                ctx.stroke();
+            }
+        });
+        
+        function saveZone() {
+            if (points.length < 3) {
+                alert('Please draw at least 3 points to define a zone');
+                return;
+            }
+            
+            // Show modal for zone configuration
+            document.getElementById('zoneModal').style.display = 'block';
+        }
+        
+        function closeModal() {
+            document.getElementById('zoneModal').style.display = 'none';
+        }
+        
+        document.getElementById('zoneForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const name = document.getElementById('zoneName').value;
+            const type = document.getElementById('zoneType').value;
+            
+            // Create zone
+            const response = await fetch('/api/zones', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    name: name,
+                    type: type,
+                    coordinates: points
+                })
+            });
+            
+            if (response.ok) {
+                closeModal();
+                clearDrawing();
+                isDrawing = false;
+                loadZones();
+            } else {
+                alert('Failed to create zone');
+            }
+        });
+        
+        async function loadZones() {
+            const response = await fetch('/api/zones');
+            const zones = await response.json();
+            
+            const list = document.getElementById('zoneList');
+            list.innerHTML = '';
+            
+            zones.forEach(zone => {
+                const item = document.createElement('li');
+                item.className = 'zone-item';
+                item.innerHTML = `
+                    <div>
+                        <span class="zone-name">${zone.name}</span>
+                        <span class="zone-type">(${zone.type})</span>
+                    </div>
+                    <div class="zone-actions">
+                        <button class="btn btn-sm btn-primary" onclick="editZone('${zone.id}')">Edit</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteZone('${zone.id}')">Delete</button>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+            
+            document.getElementById('activeZones').textContent = zones.length;
+        }
+        
+        async function loadEvents() {
+            const response = await fetch('/api/events?minutes=60');
+            const events = await response.json();
+            
+            const list = document.getElementById('eventList');
+            list.innerHTML = '';
+            
+            events.slice(0, 20).forEach(event => {
+                const item = document.createElement('li');
+                item.className = `event-item event-${event.action}`;
+                const time = new Date(event.timestamp).toLocaleTimeString();
+                item.innerHTML = `
+                    <div><strong>${event.person_id}</strong> ${event.action} ${event.zone_name || 'zone'}</div>
+                    <div class="event-time">${time}</div>
+                `;
+                list.appendChild(item);
+            });
+            
+            document.getElementById('totalEvents').textContent = events.length;
+        }
+        
+        async function updateStats() {
+            const response = await fetch('/api/stats');
+            const stats = await response.json();
+            
+            document.getElementById('activePersons').textContent = stats.active_persons;
+        }
+        
+        async function deleteZone(zoneId) {
+            if (confirm('Are you sure you want to delete this zone?')) {
+                const response = await fetch(`/api/zones/${zoneId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    loadZones();
+                }
+            }
+        }
+        
+        async function testWebhook() {
+            alert('Test webhook sent! Check your n8n workflow.');
+            // The actual webhook test would be triggered from the main app
+        }
+        
+        // Socket.IO event handlers
+        socket.on('connect', function() {
+            console.log('Connected to server');
+        });
+        
+        socket.on('new_event', function(event) {
+            console.log('New event:', event);
+            loadEvents();
+        });
+        
+        socket.on('zones_update', function(zones) {
+            loadZones();
+        });
+    </script>
+</body>
+</html>

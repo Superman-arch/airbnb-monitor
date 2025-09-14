@@ -1,0 +1,61 @@
+# Airbnb Monitoring System Configuration
+
+# Camera settings
+camera:
+  source: 0  # USB camera index or RTSP URL
+  resolution: [1280, 720]
+  fps: 30
+  
+# Detection settings
+detection:
+  mode: "motion"  # "motion" or "ml" (for future custom models)
+  person_model: "yolov8n.pt"  # YOLOv8 nano for Jetson Nano
+  confidence_threshold: 0.45
+  nms_threshold: 0.45
+
+# Tracking settings
+tracking:
+  tracker: "bytetrack"  # or "deepsort" in future
+  track_thresh: 0.25
+  track_buffer: 30
+  match_thresh: 0.8
+  min_box_area: 100
+
+# Zone detection settings
+zones:
+  motion_threshold: 25  # Motion magnitude threshold
+  min_zone_area: 5000  # Minimum area for a zone to be considered
+  auto_detect: true
+  learning_period: 86400  # 24 hours in seconds
+
+# Storage settings
+storage:
+  video_retention_hours: 48
+  segment_duration_minutes: 60
+  video_codec: "mp4v"
+  video_quality: 23  # Lower is better quality
+  snapshot_quality: 85
+  storage_path: "./storage/videos"
+  database_path: "./storage/database.db"
+
+# Notification settings
+notifications:
+  webhook_url: ""  # Set your n8n webhook URL here
+  enabled: true
+  cooldown_seconds: 10  # Minimum time between notifications for same person
+  include_snapshot: true
+  include_journey: true
+  
+# Web interface settings
+web:
+  host: "0.0.0.0"
+  port: 5000
+  debug: false
+  secret_key: "change-this-in-production"
+  
+# Logging
+logging:
+  level: "INFO"
+  file: "./logs/airbnb-monitor.log"
+  max_size_mb: 100
+  backup_count: 5
