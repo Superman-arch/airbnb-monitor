@@ -2,12 +2,27 @@
 
 import cv2
 import numpy as np
+import torch
 from ultralytics import YOLO
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import os
+import warnings
 
 from tracking.bytetrack import ByteTracker
+
+# Handle PyTorch 2.6+ weights_only security change
+try:
+    # Try to add ultralytics classes to safe globals
+    import torch.serialization as serialization
+    if hasattr(serialization, 'add_safe_globals'):
+        try:
+            from ultralytics.nn.tasks import DetectionModel
+            serialization.add_safe_globals([DetectionModel])
+        except ImportError:
+            pass
+except:
+    pass
 
 
 class PersonTracker:
@@ -37,13 +52,29 @@ class PersonTracker:
     def initialize(self) -> bool:
         """Initialize the YOLOv8 model."""
         try:
-            # Load YOLOv8 model
-            self.model = YOLO(self.model_path)
+            # Handle PyTorch 2.6+ weights_only issue
+            # First try with weights_only=False if available
+            original_weights_only = None
+            if hasattr(torch.serialization, '_weights_only_default'):
+                original_weights_only = torch.serialization._weights_only_default
+                torch.serialization._weights_only_default = False
             
-            # Download model if not exists
-            if not os.path.exists(self.model_path):
-                print(f"Downloading YOLOv8 model: {self.model_path}")
+            # Suppress the weights_only warning
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', category=FutureWarning)
+                warnings.filterwarnings('ignore', message='.*weights_only.*')
+                
+                # Load YOLOv8 model
                 self.model = YOLO(self.model_path)
+                
+                # Download model if not exists
+                if not os.path.exists(self.model_path):
+                    print(f"Downloading YOLOv8 model: {self.model_path}")
+                    self.model = YOLO(self.model_path)
+            
+            # Restore original setting
+            if original_weights_only is not None:
+                torch.serialization._weights_only_default = original_weights_only
             
             self.is_initialized = True
             print(f"Person tracker initialized with model: {self.model_path}")
@@ -51,7 +82,31 @@ class PersonTracker:
             
         except Exception as e:
             print(f"Failed to initialize person tracker: {e}")
-            return False
+            print(f"Attempting fallback initialization...")
+            
+            # Fallback: Try monkey-patching torch.load
+            try:
+                original_load = torch.load
+                
+                def patched_load(*args, **kwargs):
+                    kwargs['weights_only'] = False
+                    return original_load(*args, **kwargs)
+                
+                torch.load = patched_load
+                
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore')
+                    self.model = YOLO(self.model_path)
+                
+                torch.load = original_load
+                
+                self.is_initialized = True
+                print(f"Person tracker initialized with fallback method")
+                return True
+                
+            except Exception as e2:
+                print(f"Fallback also failed: {e2}")
+                return False
     
     def detect(self, frame: np.ndarray) -> List[Dict[str, Any]]:
         """
