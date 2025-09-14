@@ -3,8 +3,8 @@
 # Camera settings
 camera:
   source: 0  # USB camera index or RTSP URL
-  resolution: [1280, 720]
-  fps: 30
+  resolution: [640, 480]  # Reduced for better performance
+  fps: 15  # Reduced for Jetson Nano
   
 # Detection settings
 detection:
@@ -59,3 +59,16 @@ logging:
   file: "./logs/airbnb-monitor.log"
   max_size_mb: 100
   backup_count: 5
+
+# Door detection settings (for run_optimized.py)
+door_detection:
+  enabled: true
+  learning_duration: 30  # Seconds to learn environment
+  learning_fps: 10  # FPS during learning phase
+  min_door_height: 120  # Minimum door height in pixels
+  min_door_width: 30   # Minimum door width
+  max_door_width: 150  # Maximum door width
+  edge_threshold1: 50  # Canny edge threshold 1
+  edge_threshold2: 150  # Canny edge threshold 2
+  change_threshold: 0.3  # 30% change triggers state change
+  min_edge_density: 0.1  # Minimum edge density for valid door

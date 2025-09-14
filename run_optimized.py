@@ -14,6 +14,9 @@ from datetime import datetime
 from threading import Thread, Lock
 import os
 
+# Add the parent directory to the Python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # Optimize for Jetson
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
@@ -397,10 +400,17 @@ def main():
     # Register signal handler
     signal.signal(signal.SIGINT, signal_handler)
     
-    # Check for optimized config, create if not exists
+    # Check for optimized config, use regular config if not exists
     if not os.path.exists(args.config):
-        print(f"Creating optimized configuration at {args.config}")
-        # Will create this file next
+        print(f"Optimized config not found at {args.config}")
+        # Try regular config
+        if os.path.exists('config/settings.yaml'):
+            print("Using config/settings.yaml instead")
+            args.config = 'config/settings.yaml'
+        else:
+            print("ERROR: No configuration file found!")
+            print("Please create config/settings.yaml or config/settings_optimized.yaml")
+            sys.exit(1)
     
     # Create monitor
     monitor = OptimizedAirbnbMonitor(args.config)
