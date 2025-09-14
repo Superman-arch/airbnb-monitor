@@ -8,15 +8,14 @@ from datetime import datetime
 import os
 
 from tracking.bytetrack import ByteTracker
-from core.base_detector import BaseDetector
 
 
-class PersonTracker(BaseDetector):
+class PersonTracker:
     """Person detection and tracking using YOLOv8."""
     
     def __init__(self, config: Dict[str, Any]):
         """Initialize person tracker."""
-        super().__init__(config)
+        self.config = config
         
         # Model settings
         self.model_path = config.get('detection', {}).get('person_model', 'yolov8n.pt')
