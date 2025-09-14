@@ -7,18 +7,47 @@ from datetime import datetime, timedelta
 import json
 import os
 
-from core.base_detector import BaseDetector, Zone
+
+class Zone:
+    """Represents a detection zone."""
+    
+    def __init__(self, zone_id: str, coordinates: List[List[int]], name: str = None, zone_type: str = 'auto'):
+        self.id = zone_id
+        self.coordinates = coordinates
+        self.name = name or f"Zone_{zone_id}"
+        self.type = zone_type
+        self.created_at = datetime.now()
+        self.last_activity = None
+        self.activity_count = 0
+        
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert zone to dictionary."""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'type': self.type,
+            'coordinates': self.coordinates,
+            'created_at': self.created_at.isoformat(),
+            'last_activity': self.last_activity.isoformat() if self.last_activity else None,
+            'activity_count': self.activity_count
+        }
 
 
-class MotionZoneDetector(BaseDetector):
+class MotionZoneDetector:
     """Detects high-traffic zones using motion accumulation."""
     
     def __init__(self, config: Dict[str, Any]):
         """Initialize motion detector."""
-        super().__init__(config)
-        self.motion_threshold = config.get('zones', {}).get('motion_threshold', 25)
-        self.min_zone_area = config.get('zones', {}).get('min_zone_area', 5000)
-        self.learning_period = config.get('zones', {}).get('learning_period', 86400)
+        self.config = config
+        self.zones = []  # List of Zone objects
+        self.zone_counter = 0
+        
+        # Get zone configuration
+        zone_config = config.get('zones', {})
+        self.motion_threshold = zone_config.get('motion_threshold', 25)
+        self.min_zone_area = zone_config.get('min_zone_area', 5000)
+        self.learning_period = zone_config.get('learning_period', 86400)
+        self.auto_detect = zone_config.get('auto_detect', True)
         
         # Motion detection
         self.bg_subtractor = cv2.createBackgroundSubtractorMOG2(
