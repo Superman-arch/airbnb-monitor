@@ -155,6 +155,52 @@ class OptimizedAirbnbMonitor:
             f"appsink max-buffers=1 drop=true"
         )
     
+    def _auto_calibrate_doors(self):
+        """Auto-calibrate door zones on startup."""
+        try:
+            # Capture a few frames to get a stable image
+            print("Capturing frames for door calibration...")
+            frames = []
+            for i in range(5):
+                ret, frame = self.camera.read()
+                if ret:
+                    frames.append(frame)
+                    time.sleep(0.2)
+            
+            if frames:
+                # Use the middle frame for calibration
+                calibration_frame = frames[len(frames)//2]
+                
+                # Store frame for web access
+                with self.frame_lock:
+                    self.current_frame = calibration_frame.copy()
+                
+                # Attempt calibration
+                if hasattr(self.door_detector, 'calibrate_zones'):
+                    result = self.door_detector.calibrate_zones(calibration_frame)
+                    
+                    if result.get('success'):
+                        zones_found = result.get('zones_found', 0)
+                        print(f"✓ Auto-calibration successful! Found {zones_found} door(s)")
+                        
+                        # Broadcast to web if available
+                        if WEB_AVAILABLE:
+                            try:
+                                broadcast_log(f"Auto-calibration complete: {zones_found} doors detected", 'info')
+                            except:
+                                pass
+                    else:
+                        print(f"Auto-calibration failed: {result.get('error', 'Unknown error')}")
+                        print("Will use fallback edge detection for doors")
+                else:
+                    print("Door detector does not support zone calibration")
+            else:
+                print("Could not capture frames for calibration")
+                
+        except Exception as e:
+            print(f"Error during auto-calibration: {e}")
+            print("Continuing with manual door detection...")
+    
     def start(self):
         """Start the optimized monitoring system."""
         print("Starting Optimized Airbnb Monitor...")
@@ -179,9 +225,18 @@ class OptimizedAirbnbMonitor:
             print("Failed to initialize camera")
             return False
         
-        # Start door learning phase (only for edge detection)
+        # Auto-calibrate doors on startup if configured
+        if self.config.get('door_detection', {}).get('auto_calibrate_on_startup', True):
+            print("Auto-calibrating door zones on startup...")
+            self._auto_calibrate_doors()
+        
+        # Start door learning phase (only for edge detection without zones)
         if hasattr(self.door_detector, 'start_learning'):
-            self.door_detector.start_learning()
+            # Only start learning if no zones are configured
+            if not self.door_detector.get_zones():
+                self.door_detector.start_learning()
+            else:
+                print(f"Skipping learning phase - {len(self.door_detector.get_zones())} zones already configured")
         
         # Start services
         self.webhook_handler.start()

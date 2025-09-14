@@ -390,11 +390,62 @@ class DoorInferenceDetector:
         with open(filepath, 'w') as f:
             json.dump(door_data, f, indent=2, default=str)
     
+    def save_door_states(self):
+        """Save door states to file."""
+        try:
+            states = {}
+            for door_id, door in self.doors.items():
+                # Use spatial hash as key if available
+                key = getattr(door, 'spatial_hash', door_id)
+                states[key] = {
+                    'id': door.id,
+                    'bbox': door.bbox,
+                    'zone_name': getattr(door, 'zone_name', None),
+                    'zone_id': getattr(door, 'zone_id', None),
+                    'metadata': getattr(door, 'metadata', {}),
+                    'last_state': door.current_state,
+                    'last_change': door.last_change.isoformat()
+                }
+            
+            filepath = getattr(self, 'doors_file', 'config/door_inference_states.json')
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            with open(filepath, 'w') as f:
+                json.dump(states, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save door states: {e}")
+    
+    def load_door_states(self):
+        """Load door states from file."""
+        try:
+            filepath = getattr(self, 'doors_file', 'config/door_inference_states.json')
+            if os.path.exists(filepath):
+                with open(filepath, 'r') as f:
+                    states = json.load(f)
+                
+                for key, state in states.items():
+                    door = DoorInference(state['id'], tuple(state['bbox']))
+                    if hasattr(door, 'spatial_hash'):
+                        door.spatial_hash = key
+                    door.zone_name = state.get('zone_name')
+                    door.zone_id = state.get('zone_id')
+                    if hasattr(door, 'metadata'):
+                        door.metadata = state.get('metadata', {})
+                    door.current_state = state.get('last_state', 'unknown')
+                    self.doors[key] = door
+                
+                self.door_counter = len(self.doors)
+                print(f"Loaded {len(self.doors)} doors from saved state")
+        except Exception as e:
+            print(f"Failed to load door states: {e}")
+    
     def reset(self):
         """Reset detector."""
         self.doors = {}
         self.door_counter = 0
         self.frame_count = 0
+        filepath = getattr(self, 'doors_file', 'config/door_inference_states.json')
+        if os.path.exists(filepath):
+            os.remove(filepath)
     
     # Compatibility with old DoorDetector
     def start_learning(self):
