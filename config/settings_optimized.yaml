@@ -1,0 +1,99 @@
+# Optimized Configuration for Jetson Nano
+# Target: 10-15 FPS with door and person detection
+
+# Camera settings - optimized for speed
+camera:
+  source: 0  # USB camera index (change to 1 if needed)
+  resolution: [640, 480]  # Lower resolution for better FPS
+  fps: 15  # Target FPS
+
+# Door detection settings
+door_detection:
+  enabled: true
+  learning_duration: 30  # Seconds to learn environment
+  learning_fps: 10  # FPS during learning phase
+  min_door_height: 120  # Minimum door height in pixels
+  min_door_width: 30   # Minimum door width
+  max_door_width: 150  # Maximum door width
+  edge_threshold1: 50  # Canny edge threshold 1
+  edge_threshold2: 150  # Canny edge threshold 2
+  change_threshold: 0.3  # 30% change triggers state change
+  min_edge_density: 0.1  # Minimum edge density for valid door
+
+# Person detection settings - optimized
+detection:
+  mode: "motion"  # Motion-based zone detection
+  person_model: "yolov8n.pt"  # Nano model for speed
+  confidence_threshold: 0.5  # Higher threshold = fewer detections = faster
+  nms_threshold: 0.5
+
+# Tracking settings - optimized
+tracking:
+  tracker: "bytetrack"
+  track_thresh: 0.3  # Higher threshold for speed
+  track_buffer: 15  # Reduced buffer
+  match_thresh: 0.8
+  min_box_area: 400  # Ignore small detections
+
+# Zone detection settings
+zones:
+  motion_threshold: 30  # Higher threshold
+  min_zone_area: 8000  # Larger minimum area
+  auto_detect: true
+  learning_period: 43200  # 12 hours
+
+# Storage settings - optimized
+storage:
+  video_retention_hours: 24  # Reduced retention
+  segment_duration_minutes: 30  # Shorter segments
+  video_codec: "mp4v"
+  video_quality: 30  # Lower quality for smaller files
+  snapshot_quality: 75  # Lower quality snapshots
+  storage_path: "./storage/videos"
+  database_path: "./storage/database.db"
+
+# Dual webhook configuration
+notifications:
+  # Default webhook (for backward compatibility)
+  webhook_url: ""  # Set your default n8n webhook URL here
+  
+  # Separate webhooks for different event types
+  person_webhook_url: ""  # Set webhook for person events (entry/exit)
+  door_webhook_url: ""    # Set webhook for door events (open/close)
+  
+  enabled: true
+  cooldown_seconds: 5  # Reduced cooldown for faster notifications
+  include_snapshot: true
+  include_journey: true
+  
+  # Door-specific alerts
+  door_left_open_alert: 300  # Alert if door open > 5 minutes
+  rapid_door_changes_alert: 5  # Alert if door changes > 5 times in 1 minute
+
+# Web interface settings
+web:
+  host: "0.0.0.0"
+  port: 5000
+  debug: false
+  secret_key: "change-this-in-production"
+
+# Display settings (disable for better performance)
+display:
+  enabled: false  # Set to true only for debugging
+  show_fps: true
+  show_doors: true
+  show_persons: true
+  show_zones: false  # Disable zone display for speed
+
+# Performance settings
+performance:
+  person_detect_interval: 3  # Detect persons every N frames
+  zone_detect_interval: 30   # Update zones every N frames
+  door_detect_interval: 1    # Check doors every frame (lightweight)
+  
+# Logging
+logging:
+  level: "INFO"
+  file: "./logs/airbnb-monitor-optimized.log"
+  max_size_mb: 50
+  backup_count: 3

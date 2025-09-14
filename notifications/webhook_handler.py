@@ -22,7 +22,11 @@ class WebhookHandler:
         self.config = config
         notification_config = config.get('notifications', {})
         
+        # Support multiple webhook URLs
         self.webhook_url = notification_config.get('webhook_url', '')
+        self.person_webhook_url = notification_config.get('person_webhook_url', '')
+        self.door_webhook_url = notification_config.get('door_webhook_url', '')
+        
         self.enabled = notification_config.get('enabled', True)
         self.cooldown_seconds = notification_config.get('cooldown_seconds', 10)
         self.include_snapshot = notification_config.get('include_snapshot', True)
@@ -68,19 +72,40 @@ class WebhookHandler:
             frame: Optional frame for snapshot
             journey: Optional journey data
         """
-        if not self.enabled or not self.webhook_url:
+        if not self.enabled:
             return
         
-        # Check cooldown
-        person_id = event.get('person_id')
-        if person_id and not self._check_cooldown(person_id):
+        # Determine which webhook to use based on event type
+        webhook_url = self._get_webhook_for_event(event)
+        if not webhook_url:
+            return
+        
+        # Check cooldown (use different cooldowns for different event types)
+        cooldown_key = event.get('person_id') or event.get('door_id')
+        if cooldown_key and not self._check_cooldown(cooldown_key):
             return
         
         # Prepare notification
         notification = self._prepare_notification(event, frame, journey)
+        notification['webhook_url'] = webhook_url  # Include target webhook
         
         # Queue for sending
         self.notification_queue.put(notification)
+    
+    def _get_webhook_for_event(self, event: Dict[str, Any]) -> str:
+        """Determine which webhook URL to use based on event type."""
+        event_type = event.get('event', event.get('action', ''))
+        
+        # Door events
+        if any(door_word in event_type for door_word in ['door', 'discovered']):
+            return self.door_webhook_url or self.webhook_url
+        
+        # Person events
+        elif any(person_word in event_type for person_word in ['entry', 'exit', 'person']):
+            return self.person_webhook_url or self.webhook_url
+        
+        # Default
+        return self.webhook_url
     
     def _check_cooldown(self, person_id: str) -> bool:
         """Check if cooldown period has passed for person."""
@@ -176,9 +201,16 @@ class WebhookHandler:
     def _send_notification(self, notification: Dict[str, Any]):
         """Send notification to webhook."""
         try:
+            # Get the target webhook URL from notification
+            webhook_url = notification.pop('webhook_url', self.webhook_url)
+            
+            if not webhook_url:
+                print("No webhook URL configured for this event type")
+                return
+            
             # Send POST request to n8n webhook
             response = requests.post(
-                self.webhook_url,
+                webhook_url,
                 json=notification,
                 headers={'Content-Type': 'application/json'},
                 timeout=10
