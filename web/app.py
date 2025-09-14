@@ -33,15 +33,26 @@ frame_lock = threading.Lock()
 def init_app(config):
     """Initialize the web app with system components."""
     global zone_detector, journey_manager
-    zone_detector = MotionZoneDetector(config)
-    journey_manager = JourneyManager(config)
-    zone_detector.initialize()
+    zone_detector = app.config.get('zone_detector') or MotionZoneDetector(config)
+    journey_manager = app.config.get('journey_manager') or JourneyManager(config)
+    if hasattr(zone_detector, 'initialize'):
+        zone_detector.initialize()
 
 
 @app.route('/')
 def index():
     """Main dashboard page."""
     return render_template('index.html')
+
+
+@app.route('/test')
+def test():
+    """Simple test route to verify server is running."""
+    return jsonify({
+        'status': 'running',
+        'message': 'Web server is working!',
+        'timestamp': datetime.now().isoformat()
+    })
 
 
 @app.route('/api/zones', methods=['GET'])

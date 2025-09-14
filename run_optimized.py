@@ -33,11 +33,10 @@ from storage.video_manager import CircularVideoBuffer
 try:
     from flask import Flask
     from flask_cors import CORS
-    from flask_socketio import SocketIO
-    from web.app import app, init_app, update_frame
+    from web.app import app
     WEB_AVAILABLE = True
-except ImportError:
-    print("Warning: Flask not available, web interface disabled")
+except ImportError as e:
+    print(f"Warning: Web interface not available: {e}")
     WEB_AVAILABLE = False
 
 
@@ -180,11 +179,10 @@ class OptimizedAirbnbMonitor:
         
         def run_web_server():
             try:
-                # Initialize the web app with our components
-                init_app(self.config)
-                
                 # Pass reference to this monitor for frame access
                 app.config['monitor'] = self
+                app.config['zone_detector'] = self.zone_detector
+                app.config['journey_manager'] = self.journey_manager
                 
                 # Get host and port from config
                 web_config = self.config.get('web', {})
@@ -194,10 +192,12 @@ class OptimizedAirbnbMonitor:
                 print(f"Starting web interface at http://{host}:{port}")
                 
                 # Run Flask app (blocking call)
-                app.run(host=host, port=port, debug=False, use_reloader=False)
+                app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
                 
             except Exception as e:
                 print(f"Web server error: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Start web server in separate thread
         self.web_thread = Thread(target=run_web_server, daemon=True)
