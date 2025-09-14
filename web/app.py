@@ -142,13 +142,33 @@ def video_feed():
     """Video streaming route."""
     def generate():
         global current_frame
+        monitor = app.config.get('monitor')
+        
         while True:
-            with frame_lock:
-                if current_frame is not None:
-                    _, buffer = cv2.imencode('.jpg', current_frame)
-                    frame_bytes = buffer.tobytes()
-                    yield (b'--frame\r\n'
-                          b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            frame = None
+            
+            # Try to get frame from monitor if available
+            if monitor and hasattr(monitor, 'get_current_frame'):
+                frame = monitor.get_current_frame()
+            elif monitor and hasattr(monitor, 'current_frame'):
+                with monitor.frame_lock:
+                    if monitor.current_frame is not None:
+                        frame = monitor.current_frame.copy()
+            else:
+                # Fallback to global current_frame
+                with frame_lock:
+                    if current_frame is not None:
+                        frame = current_frame.copy()
+            
+            if frame is not None:
+                _, buffer = cv2.imencode('.jpg', frame)
+                frame_bytes = buffer.tobytes()
+                yield (b'--frame\r\n'
+                      b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            else:
+                # If no frame available, wait a bit
+                import time
+                time.sleep(0.1)
     
     return Response(generate(),
                    mimetype='multipart/x-mixed-replace; boundary=frame')

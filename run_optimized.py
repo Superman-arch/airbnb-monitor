@@ -29,6 +29,17 @@ from tracking.journey_manager import JourneyManager
 from notifications.webhook_handler import WebhookHandler
 from storage.video_manager import CircularVideoBuffer
 
+# Import web interface
+try:
+    from flask import Flask
+    from flask_cors import CORS
+    from flask_socketio import SocketIO
+    from web.app import app, init_app, update_frame
+    WEB_AVAILABLE = True
+except ImportError:
+    print("Warning: Flask not available, web interface disabled")
+    WEB_AVAILABLE = False
+
 
 class OptimizedAirbnbMonitor:
     """Optimized version for better FPS on Jetson Nano."""
@@ -73,6 +84,11 @@ class OptimizedAirbnbMonitor:
         # Thread safety
         self.frame_lock = Lock()
         self.current_frame = None
+        
+        # Web server
+        self.web_thread = None
+        self.web_app = None
+        self.socketio = None
         
     def initialize_camera(self):
         """Initialize camera with optimized settings."""
@@ -146,12 +162,47 @@ class OptimizedAirbnbMonitor:
         self.webhook_handler.start()
         self.video_buffer.start(self.resolution, self.fps)
         
+        # Start web server
+        self.start_web_server()
+        
         self.running = True
         
         # Start processing
         self.process_loop_optimized()
         
         return True
+    
+    def start_web_server(self):
+        """Start the Flask web server in a separate thread."""
+        if not WEB_AVAILABLE:
+            print("Web interface not available (Flask not installed)")
+            return
+        
+        def run_web_server():
+            try:
+                # Initialize the web app with our components
+                init_app(self.config)
+                
+                # Pass reference to this monitor for frame access
+                app.config['monitor'] = self
+                
+                # Get host and port from config
+                web_config = self.config.get('web', {})
+                host = web_config.get('host', '0.0.0.0')
+                port = web_config.get('port', 5000)
+                
+                print(f"Starting web interface at http://{host}:{port}")
+                
+                # Run Flask app (blocking call)
+                app.run(host=host, port=port, debug=False, use_reloader=False)
+                
+            except Exception as e:
+                print(f"Web server error: {e}")
+        
+        # Start web server in separate thread
+        self.web_thread = Thread(target=run_web_server, daemon=True)
+        self.web_thread.start()
+        print("Web server thread started")
     
     def process_loop_optimized(self):
         """Optimized processing loop with frame skipping."""
