@@ -63,6 +63,19 @@ logging:
 # Door detection settings (for run_optimized.py)
 door_detection:
   enabled: true
+  
+  # Inference Server Settings (preferred method)
+  use_inference: true  # Use Roboflow Inference Server
+  inference_url: "http://localhost:9001"  # Local inference server
+  model_id: "is-my-door-open/2"  # Roboflow model ID
+  confidence_threshold: 0.6  # Detection confidence threshold
+  process_every_n_frames: 2  # Process every Nth frame for performance
+  
+  # Temporal filtering (minimal with ML)
+  state_confirmation_frames: 2  # Only 2 frames needed with ML
+  min_seconds_between_changes: 1.0  # 1 second between changes
+  
+  # Edge Detection Settings (fallback if inference unavailable)
   learning_duration: 30  # Seconds to learn environment
   learning_fps: 10  # FPS during learning phase
   min_door_height: 120  # Minimum door height in pixels
@@ -72,10 +85,6 @@ door_detection:
   edge_threshold2: 150  # Canny edge threshold 2
   change_threshold: 0.3  # 30% change triggers state change
   min_edge_density: 0.1  # Minimum edge density for valid door
-  
-  # Temporal filtering to prevent false alarms
-  state_confirmation_frames: 8  # Require 8 consecutive frames to confirm state change
-  min_seconds_between_changes: 2.0  # Minimum 2 seconds between state changes
-  closed_threshold: 0.8  # Similarity > 0.8 = door closed (increased from 0.7)
-  open_threshold: 0.2  # Similarity < 0.2 = door open (decreased from 0.3)
-  noise_kernel_size: 3  # Gaussian blur kernel size for noise reduction
+  closed_threshold: 0.8  # Similarity > 0.8 = door closed
+  open_threshold: 0.2  # Similarity < 0.2 = door open
+  noise_kernel_size: 3  # Gaussian blur kernel size

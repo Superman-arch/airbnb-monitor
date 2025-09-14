@@ -23,7 +23,17 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 # Import our modules
 from detection.motion_detector import MotionZoneDetector
-from detection.door_detector import DoorDetector
+
+# Try to import inference detector first, fall back to edge detection
+try:
+    from detection.door_inference_detector import DoorInferenceDetector
+    INFERENCE_AVAILABLE = True
+    print("Using Roboflow Inference for door detection")
+except ImportError:
+    from detection.door_detector import DoorDetector
+    INFERENCE_AVAILABLE = False
+    print("Using edge detection for doors (inference not available)")
+
 from tracking.person_tracker import PersonTracker
 from tracking.journey_manager import JourneyManager
 from notifications.webhook_handler import WebhookHandler
@@ -54,7 +64,13 @@ class OptimizedAirbnbMonitor:
         
         # Initialize components
         self.zone_detector = MotionZoneDetector(self.config)
-        self.door_detector = DoorDetector(self.config)
+        
+        # Use inference detector if available
+        if INFERENCE_AVAILABLE:
+            self.door_detector = DoorInferenceDetector(self.config)
+        else:
+            self.door_detector = DoorDetector(self.config)
+            
         self.person_tracker = PersonTracker(self.config)
         self.journey_manager = JourneyManager(self.config)
         self.webhook_handler = WebhookHandler(self.config)
@@ -149,13 +165,20 @@ class OptimizedAirbnbMonitor:
             print("Failed to initialize person tracker")
             return False
         
+        # Initialize door detector (inference needs initialization)
+        if hasattr(self.door_detector, 'initialize'):
+            if not self.door_detector.initialize():
+                print("Warning: Door detector initialization failed")
+                print("Continuing without door detection...")
+        
         # Initialize camera
         if not self.initialize_camera():
             print("Failed to initialize camera")
             return False
         
-        # Start door learning phase
-        self.door_detector.start_learning()
+        # Start door learning phase (only for edge detection)
+        if hasattr(self.door_detector, 'start_learning'):
+            self.door_detector.start_learning()
         
         # Start services
         self.webhook_handler.start()
@@ -232,16 +255,21 @@ class OptimizedAirbnbMonitor:
             with self.frame_lock:
                 self.current_frame = frame.copy()
             
-            # ALWAYS: Door detection (lightweight edge detection)
-            learning_complete, door_events = self.door_detector.process_frame(frame)
-            
-            if learning_complete and not door_learning_complete:
-                door_learning_complete = True
-                print(f"Door learning complete! Found {len(self.door_detector.doors)} doors")
+            # ALWAYS: Door detection
+            if INFERENCE_AVAILABLE:
+                # Inference detection (no learning phase)
+                _, door_events = self.door_detector.process_frame(frame)
+            else:
+                # Edge detection with learning phase
+                learning_complete, door_events = self.door_detector.process_frame(frame)
                 
-                # Send door discovery events
-                for event in door_events:
-                    self.webhook_handler.send_event(event, frame)
+                if learning_complete and not door_learning_complete:
+                    door_learning_complete = True
+                    print(f"Door learning complete! Found {len(self.door_detector.doors)} doors")
+                    
+                    # Send door discovery events
+                    for event in door_events:
+                        self.webhook_handler.send_event(event, frame)
             
             # Handle door state change events
             for event in door_events:
