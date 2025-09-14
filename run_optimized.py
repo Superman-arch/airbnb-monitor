@@ -12,6 +12,7 @@ import sys
 import time
 from datetime import datetime
 from threading import Thread, Lock
+from typing import Dict, Any
 import os
 
 # Add the parent directory to the Python path
@@ -256,7 +257,7 @@ class OptimizedAirbnbMonitor:
             if elapsed < target_time:
                 time.sleep(target_time - elapsed)
     
-    def send_door_event(self, event: Dict, frame: np.ndarray):
+    def send_door_event(self, event: Dict[str, Any], frame: np.ndarray):
         """Send door-specific event to webhook."""
         # Use door-specific webhook if configured
         webhook_url = self.config.get('notifications', {}).get('door_webhook_url')
@@ -270,7 +271,7 @@ class OptimizedAirbnbMonitor:
             # Use default webhook
             self.webhook_handler.send_event(event, frame)
     
-    def send_person_event(self, event: Dict, frame: np.ndarray):
+    def send_person_event(self, event: Dict[str, Any], frame: np.ndarray):
         """Send person-specific event to webhook."""
         # Use person-specific webhook if configured
         webhook_url = self.config.get('notifications', {}).get('person_webhook_url')
