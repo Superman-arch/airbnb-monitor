@@ -311,6 +311,7 @@
                     <canvas id="canvas"></canvas>
                 </div>
                 <div class="controls">
+                    <button class="btn btn-primary" onclick="calibrateDoorZones()">🎯 Calibrate Doors</button>
                     <button class="btn btn-primary" onclick="startDrawing()">Draw Zone</button>
                     <button class="btn btn-primary" onclick="clearDrawing()">Clear</button>
                     <button class="btn btn-primary" onclick="saveZone()">Save Zone</button>
@@ -322,6 +323,9 @@
             <div>
                 <div class="card" style="margin-bottom: 2rem;">
                     <h2>Active Doors</h2>
+                    <div id="doorZoneInfo" style="margin-bottom: 1rem; display: none;">
+                        <p style="color: #28a745;">✓ <span id="zoneCount">0</span> door zones configured</p>
+                    </div>
                     <ul class="zone-list" id="doorList">
                         <!-- Doors will be populated here -->
                     </ul>
@@ -376,6 +380,7 @@
         window.onload = function() {
             setupCanvas();
             loadDoors();  // Load door states
+            loadDoorZones();  // Load door zone configurations
             loadZones();  // Keep for zone drawing functionality
             loadEvents();
             updateStats();
@@ -473,6 +478,58 @@
             }
         });
         
+        async function calibrateDoorZones() {
+            if (confirm('This will analyze the current camera view to identify and map all visible doors. Continue?')) {
+                const button = event.target;
+                button.disabled = true;
+                button.textContent = '⏳ Analyzing...';
+                
+                try {
+                    const response = await fetch('/api/door-zones/calibrate', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'}
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        alert(`✅ Calibration complete!\n\nFound ${result.zones_found} door(s):\n${result.zones.map(z => `• ${z.name}: ${z.description}`).join('\n')}\n\nCalibration time: ${result.calibration_time.toFixed(1)}s`);
+                        
+                        // Update zone info display
+                        if (result.zones_found > 0) {
+                            document.getElementById('doorZoneInfo').style.display = 'block';
+                            document.getElementById('zoneCount').textContent = result.zones_found;
+                        }
+                        
+                        // Reload doors and zones
+                        loadDoors();
+                        loadDoorZones();
+                    } else {
+                        alert('❌ Calibration failed: ' + (result.error || 'Unknown error'));
+                    }
+                } catch (error) {
+                    alert('❌ Error during calibration: ' + error.message);
+                } finally {
+                    button.disabled = false;
+                    button.textContent = '🎯 Calibrate Doors';
+                }
+            }
+        }
+        
+        async function loadDoorZones() {
+            try {
+                const response = await fetch('/api/door-zones');
+                const zones = await response.json();
+                
+                if (zones.length > 0) {
+                    document.getElementById('doorZoneInfo').style.display = 'block';
+                    document.getElementById('zoneCount').textContent = zones.length;
+                }
+            } catch (error) {
+                console.error('Failed to load door zones:', error);
+            }
+        }
+        
         async function loadDoors() {
             const response = await fetch('/api/doors');
             const doors = await response.json();
@@ -490,15 +547,18 @@
                     const stateColor = door.state === 'open' ? '#e74c3c' : door.state === 'closed' ? '#27ae60' : '#f39c12';
                     const stateIcon = door.state === 'open' ? '🔓' : door.state === 'closed' ? '🔒' : '🚪';
                     
+                    const doorName = door.door_name || door.zone_name || door.door_id || door.id;
                     item.innerHTML = `
                         <div>
-                            ${stateIcon} <span class="zone-name">${door.door_id || door.id}</span>
+                            ${stateIcon} <span class="zone-name">${doorName}</span>
                             <span style="display: inline-block; padding: 0.25rem 0.5rem; background: ${stateColor}; color: white; border-radius: 4px; font-size: 0.8rem; margin-left: 0.5rem;">
                                 ${door.state ? door.state.toUpperCase() : 'UNKNOWN'}
                             </span>
+                            ${door.zone_id ? '<span style="margin-left: 0.5rem; color: #28a745;">📍</span>' : ''}
                         </div>
                         <div style="font-size: 0.8rem; color: #666;">
                             ${door.confidence ? `${(door.confidence * 100).toFixed(0)}%` : ''}
+                            ${door.zone_id ? ' • Zone mapped' : ''}
                         </div>
                     `;
                     list.appendChild(item);

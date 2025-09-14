@@ -197,6 +197,83 @@ def get_doors():
     return jsonify(door_states)
 
 
+@app.route('/api/door-zones')
+def get_door_zones():
+    """Get configured door zones."""
+    zones = []
+    
+    if monitor_instance and hasattr(monitor_instance, 'door_detector'):
+        if hasattr(monitor_instance.door_detector, 'get_zones'):
+            zones = monitor_instance.door_detector.get_zones()
+    
+    return jsonify(zones)
+
+
+@app.route('/api/door-zones/calibrate', methods=['POST'])
+def calibrate_door_zones():
+    """Calibrate door zones using VLM."""
+    if not monitor_instance or not hasattr(monitor_instance, 'door_detector'):
+        return jsonify({'success': False, 'error': 'Door detector not available'}), 500
+    
+    # Get current frame
+    frame = None
+    with frame_lock:
+        if current_frame is not None:
+            frame = current_frame.copy()
+    
+    if frame is None:
+        return jsonify({'success': False, 'error': 'No camera frame available'}), 400
+    
+    # Calibrate zones
+    if hasattr(monitor_instance.door_detector, 'calibrate_zones'):
+        result = monitor_instance.door_detector.calibrate_zones(frame)
+        
+        # Broadcast update to all clients
+        socketio.emit('zones_updated', result)
+        
+        return jsonify(result)
+    else:
+        return jsonify({'success': False, 'error': 'Zone calibration not supported'}), 400
+
+
+@app.route('/api/door-zones/<zone_id>/name', methods=['PUT'])
+def update_zone_name(zone_id):
+    """Update the name of a door zone."""
+    if not monitor_instance or not hasattr(monitor_instance, 'door_detector'):
+        return jsonify({'success': False, 'error': 'Door detector not available'}), 500
+    
+    data = request.get_json()
+    new_name = data.get('name')
+    
+    if not new_name:
+        return jsonify({'success': False, 'error': 'Name is required'}), 400
+    
+    if hasattr(monitor_instance.door_detector, 'zone_mapper') and monitor_instance.door_detector.zone_mapper:
+        success = monitor_instance.door_detector.zone_mapper.update_zone_name(zone_id, new_name)
+        if success:
+            # Broadcast update
+            socketio.emit('zone_name_updated', {'zone_id': zone_id, 'name': new_name})
+            return jsonify({'success': True})
+    
+    return jsonify({'success': False, 'error': 'Failed to update zone name'}), 400
+
+
+@app.route('/api/door-zones/<zone_id>', methods=['DELETE'])
+def delete_door_zone(zone_id):
+    """Delete a door zone."""
+    if not monitor_instance or not hasattr(monitor_instance, 'door_detector'):
+        return jsonify({'success': False, 'error': 'Door detector not available'}), 500
+    
+    if hasattr(monitor_instance.door_detector, 'zone_mapper') and monitor_instance.door_detector.zone_mapper:
+        success = monitor_instance.door_detector.zone_mapper.delete_zone(zone_id)
+        if success:
+            # Broadcast update
+            socketio.emit('zone_deleted', {'zone_id': zone_id})
+            return jsonify({'success': True})
+    
+    return jsonify({'success': False, 'error': 'Failed to delete zone'}), 400
+
+
 @app.route('/api/frame')
 def get_frame():
     """Get current camera frame."""

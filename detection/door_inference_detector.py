@@ -75,6 +75,33 @@ class DoorInferenceDetector:
         # Performance optimization
         self.process_every_n_frames = door_config.get('process_every_n_frames', 2)
         
+        # VLM Zone integration
+        self.zone_mapper = None
+        self._init_zone_mapper()
+    
+    def _init_zone_mapper(self):
+        """Initialize the VLM zone mapper."""
+        try:
+            from .vlm_zone_mapper import VLMZoneMapper
+            self.zone_mapper = VLMZoneMapper(self.config)
+            if self.zone_mapper.zones:
+                print(f"Loaded {len(self.zone_mapper.zones)} predefined door zones")
+        except Exception as e:
+            print(f"Zone mapper not available: {e}")
+            self.zone_mapper = None
+    
+    def calibrate_zones(self, frame: np.ndarray) -> Dict[str, Any]:
+        """Calibrate door zones using VLM."""
+        if self.zone_mapper:
+            return self.zone_mapper.calibrate(frame)
+        return {'success': False, 'error': 'Zone mapper not available'}
+    
+    def get_zones(self) -> List[Dict[str, Any]]:
+        """Get all defined zones."""
+        if self.zone_mapper:
+            return self.zone_mapper.get_zones()
+        return []
+        
     def initialize(self):
         """Initialize the inference client."""
         if not INFERENCE_AVAILABLE:
@@ -157,24 +184,40 @@ class DoorInferenceDetector:
                 else:
                     state = 'unknown'
                 
-                # Get door ID based on location
+                # Get door ID based on location and zone mapping
                 door_id = self._get_door_id_for_location(bbox)
                 current_door_ids.add(door_id)
+                
+                # Try to match with a zone
+                zone = None
+                zone_name = None
+                if self.zone_mapper:
+                    zone = self.zone_mapper.get_zone_for_detection(bbox)
+                    if zone:
+                        door_id = zone.id  # Use zone ID as door ID
+                        zone_name = zone.name
                 
                 # Get or create door
                 if door_id not in self.doors:
                     self.doors[door_id] = DoorInference(door_id, bbox)
+                    # Store zone info
+                    if zone:
+                        self.doors[door_id].zone_id = zone.id
+                        self.doors[door_id].zone_name = zone.name
+                    
                     # Discovery event
                     events.append({
                         'event': 'door_discovered',
                         'door_id': door_id,
+                        'door_name': zone_name or f"Door {door_id}",
+                        'zone_id': zone.id if zone else None,
                         'bbox': bbox,
                         'initial_state': state,
                         'timestamp': datetime.now(),
                         'confidence': confidence,
                         'event_type': 'door'
                     })
-                    print(f"Discovered {door_id}: {state} ({confidence:.0%})")
+                    print(f"Discovered {zone_name or door_id}: {state} ({confidence:.0%})")
                 
                 door = self.doors[door_id]
                 door.confidence = confidence
@@ -208,6 +251,8 @@ class DoorInferenceDetector:
                         event = {
                             'event': f'door_{state}',
                             'door_id': door_id,
+                            'door_name': getattr(door, 'zone_name', None) or f"Door {door_id}",
+                            'zone_id': getattr(door, 'zone_id', None),
                             'timestamp': door.last_change,
                             'previous_state': door.previous_state,
                             'current_state': state,
@@ -217,7 +262,8 @@ class DoorInferenceDetector:
                         }
                         events.append(event)
                         
-                        print(f"{door_id}: {door.previous_state} -> {state} ({confidence:.0%})")
+                        door_display = getattr(door, 'zone_name', None) or door_id
+                        print(f"{door_display}: {door.previous_state} -> {state} ({confidence:.0%})")
                         
                         # Reset pending
                         door.pending_state = None
@@ -266,9 +312,21 @@ class DoorInferenceDetector:
         return f"door_{self.door_counter:03d}"
     
     def draw_doors(self, frame: np.ndarray) -> np.ndarray:
-        """Draw door overlays."""
+        """Draw door overlays with zones."""
         overlay = frame.copy()
         
+        # First draw zones if available
+        if self.zone_mapper:
+            # Prepare active doors info for zone drawing
+            active_doors = {}
+            for door_id, door in self.doors.items():
+                active_doors[door_id] = {
+                    'zone_id': getattr(door, 'zone_id', None),
+                    'state': door.current_state
+                }
+            overlay = self.zone_mapper.draw_zones(overlay, active_doors)
+        
+        # Then draw current detections
         for door in self.doors.values():
             x, y, w, h = door.bbox
             
@@ -286,8 +344,9 @@ class DoorInferenceDetector:
             # Draw bounding box
             cv2.rectangle(overlay, (x, y), (x + w, y + h), color, 2)
             
-            # Label
-            label = f"{door.id}: {door.current_state.upper()}"
+            # Label with zone name if available
+            door_name = getattr(door, 'zone_name', None) or door.id
+            label = f"{door_name}: {door.current_state.upper()}"
             if door.confidence > 0:
                 label += f" ({door.confidence:.0%})"
             if door.current_state == "open" and door.open_duration.total_seconds() > 0:
