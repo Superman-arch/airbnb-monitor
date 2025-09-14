@@ -22,13 +22,23 @@ model = None
 processor = None
 
 def load_model():
-    """Load Phi-3.5 Vision model."""
+    """Load Phi-3.5 Vision model with compatibility fixes."""
     global model, processor
     
     logger.info("Loading Phi-3.5 Vision model...")
+    logger.info(f"PyTorch version: {torch.__version__}")
     model_id = "microsoft/Phi-3.5-vision-instruct"
     
     try:
+        # Fix float8 compatibility for older PyTorch versions
+        if not hasattr(torch, 'float8_e4m3fn'):
+            logger.info("Patching PyTorch for float8 compatibility...")
+            # Create dummy float8 types that map to float16
+            torch.float8_e4m3fn = torch.float16
+            torch.float8_e5m2 = torch.float16
+            torch.float8_e4m3fnuz = torch.float16
+            torch.float8_e5m2fnuz = torch.float16
+            
         # Load processor
         processor = AutoProcessor.from_pretrained(
             model_id,
@@ -36,22 +46,44 @@ def load_model():
             num_crops=4  # Optimized for multi-frame
         )
         
-        # Load model with optimizations for Jetson
+        # Load model with compatibility settings
+        logger.info("Loading model weights (this may take a few minutes)...")
         model = AutoModelForCausalLM.from_pretrained(
             model_id,
             device_map="cuda" if torch.cuda.is_available() else "cpu",
             trust_remote_code=True,
-            torch_dtype=torch.float16,  # Use fp16 for memory efficiency
+            torch_dtype=torch.float32,  # Use float32 for better compatibility
             low_cpu_mem_usage=True,
-            _attn_implementation='eager'  # Don't require flash_attn
+            _attn_implementation='eager',  # Don't require flash_attn
+            ignore_mismatched_sizes=True  # Ignore size mismatches from float8
         )
         
+        # Optional: Convert to half precision after loading for memory efficiency
+        if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 6:
+            logger.info("Converting model to half precision for GPU efficiency...")
+            model = model.half()
+            
         logger.info(f"Model loaded successfully on {'CUDA' if torch.cuda.is_available() else 'CPU'}")
         return True
         
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
-        return False
+        logger.error("Trying fallback loading method...")
+        
+        # Fallback: Try loading without some optimizations
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                model_id,
+                device_map="auto",
+                trust_remote_code=True,
+                torch_dtype="auto",
+                low_cpu_mem_usage=True
+            )
+            logger.info("Model loaded with fallback method")
+            return True
+        except Exception as e2:
+            logger.error(f"Fallback also failed: {e2}")
+            return False
 
 @app.route('/health', methods=['GET'])
 def health():
