@@ -12,7 +12,7 @@ import sys
 import time
 from datetime import datetime
 from threading import Thread, Lock
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional, Tuple
 import os
 
 # Add the parent directory to the Python path
@@ -499,45 +499,62 @@ class OptimizedAirbnbMonitor:
         
         # Draw person tracking with IDs
         for person in tracked_persons:
-            person_id = person.get('id', 'unknown')
-            track = person.get('track')
-            
-            if track and hasattr(track, 'tlbr'):
-                x1, y1, x2, y2 = map(int, track.tlbr)
-                color = COLORS['person']
+            try:
+                person_id = person.get('id', 'unknown')
+                track = person.get('track')
                 
-                # Draw bounding box
-                cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
-                
-                # Draw tracking trail if available
-                if hasattr(track, 'centroid_history') and len(track.centroid_history) > 1:
-                    points = np.array(track.centroid_history[-10:], np.int32)
-                    cv2.polylines(overlay, [points], False, color, 1)
-                
-                # Draw label
-                label = f"Person #{person_id}"
-                confidence = person.get('confidence', 0)
-                if confidence > 0:
-                    label += f" {confidence:.0%}"
-                
-                label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
-                
-                # Semi-transparent background
-                label_bg = overlay.copy()
-                cv2.rectangle(label_bg,
-                            (x1, y1 - label_size[1] - 4),
-                            (x1 + label_size[0] + 8, y1 + 4),
-                            color, -1)
-                cv2.addWeighted(label_bg, 0.6, overlay, 0.4, 0, overlay)
-                
-                # Draw text
-                cv2.putText(overlay, label, (x1 + 4, y1 - 2),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-                
-                # Draw ID badge
-                cv2.rectangle(overlay, (x2 - 30, y1 + 2), (x2 - 2, y1 + 22), color, -1)
-                cv2.putText(overlay, f"P{person_id}", (x2 - 28, y1 + 17),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                if track:
+                    # Get bounding box - try different methods
+                    bbox = None
+                    if hasattr(track, 'tlbr'):
+                        bbox = track.tlbr()  # Call as method
+                    elif hasattr(track, '_tlbr'):
+                        bbox = track._tlbr  # Access internal attribute
+                    elif hasattr(track, 'tlwh'):
+                        # Convert tlwh to tlbr
+                        tlwh = track.tlwh
+                        bbox = [tlwh[0], tlwh[1], tlwh[0] + tlwh[2], tlwh[1] + tlwh[3]]
+                    
+                    if bbox is not None:
+                        x1, y1, x2, y2 = map(int, bbox)
+                        color = COLORS['person']
+                        
+                        # Draw bounding box
+                        cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
+                        
+                        # Draw tracking trail if available
+                        if hasattr(track, 'centroid_history') and len(track.centroid_history) > 1:
+                            points = np.array(track.centroid_history[-10:], np.int32)
+                            cv2.polylines(overlay, [points], False, color, 1)
+                        
+                        # Draw label
+                        label = f"Person #{person_id}"
+                        confidence = person.get('confidence', 0)
+                        if confidence > 0:
+                            label += f" {confidence:.0%}"
+                        
+                        label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+                        
+                        # Semi-transparent background
+                        label_bg = overlay.copy()
+                        cv2.rectangle(label_bg,
+                                    (x1, y1 - label_size[1] - 4),
+                                    (x1 + label_size[0] + 8, y1 + 4),
+                                    color, -1)
+                        cv2.addWeighted(label_bg, 0.6, overlay, 0.4, 0, overlay)
+                        
+                        # Draw text
+                        cv2.putText(overlay, label, (x1 + 4, y1 - 2),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                        
+                        # Draw ID badge
+                        cv2.rectangle(overlay, (x2 - 30, y1 + 2), (x2 - 2, y1 + 22), color, -1)
+                        cv2.putText(overlay, f"P{person_id}", (x2 - 28, y1 + 17),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            except Exception as e:
+                # Skip this person if there's an error
+                print(f"Warning: Could not draw person {person.get('id', 'unknown')}: {e}")
+                continue
         
         # Draw stats overlay
         self.draw_stats_overlay(overlay)
@@ -558,7 +575,7 @@ class OptimizedAirbnbMonitor:
         stats = [
             f"FPS: {self.get_current_fps():.1f}",
             f"Doors: {len(self.door_detector.doors)}",
-            f"Persons: {self.person_tracker.tracker.n_tracked if hasattr(self.person_tracker, 'tracker') else 0}",
+            f"Persons: {len(self.person_tracker.tracker.tracked_stracks) if hasattr(self.person_tracker.tracker, 'tracked_stracks') else 0}",
             f"Frame: {self.frame_counter}"
         ]
         
