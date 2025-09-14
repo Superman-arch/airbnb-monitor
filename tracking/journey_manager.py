@@ -126,19 +126,21 @@ class JourneyManager:
                 )
             ''')
             
-            # Create events table
+            # Create events table (for both person and door events)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_type TEXT,  -- 'person' or 'door'
                     person_id TEXT,
+                    door_id TEXT,
                     timestamp TIMESTAMP,
                     camera_id TEXT,
                     zone_id TEXT,
                     zone_name TEXT,
-                    action TEXT,
+                    action TEXT,  -- entry/exit for person, opened/closed for door
                     confidence REAL,
                     snapshot_path TEXT,
-                    FOREIGN KEY (person_id) REFERENCES persons (person_id)
+                    metadata TEXT  -- JSON for additional data
                 )
             ''')
             
@@ -157,6 +159,35 @@ class JourneyManager:
             ''')
             
             conn.commit()
+    
+    def store_door_event(self, event: Dict[str, Any]):
+        """Store door event in database."""
+        with self.db_lock:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Map door event fields to database columns
+                event_type = 'door'
+                door_id = event.get('door_id', '')
+                timestamp = event.get('timestamp', datetime.now())
+                action = event.get('event', '').replace('door_', '')  # Remove 'door_' prefix
+                confidence = event.get('confidence', 0.0)
+                
+                # Store additional metadata as JSON
+                import json
+                metadata = json.dumps({
+                    'previous_state': event.get('previous_state'),
+                    'current_state': event.get('current_state'),
+                    'bbox': event.get('bbox'),
+                    'duration_seconds': event.get('duration_seconds')
+                })
+                
+                cursor.execute('''
+                    INSERT INTO events (event_type, door_id, timestamp, action, confidence, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (event_type, door_id, timestamp, action, confidence, metadata))
+                
+                conn.commit()
     
     def process_tracks(self, tracks: List[Dict[str, Any]], camera_id: str, 
                        zones: List[Any], timestamp: datetime = None) -> List[Dict[str, Any]]:
@@ -284,10 +315,11 @@ class JourneyManager:
                 cursor = conn.cursor()
                 cursor.execute('''
                     INSERT INTO events 
-                    (person_id, timestamp, camera_id, zone_id, zone_name, 
+                    (event_type, person_id, timestamp, camera_id, zone_id, zone_name, 
                      action, confidence, snapshot_path)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
+                    'person',  # event_type
                     event['person_id'],
                     event['timestamp'],
                     event['camera_id'],
@@ -328,14 +360,14 @@ class JourneyManager:
         return occupants
     
     def get_recent_events(self, minutes: int = 60) -> List[Dict[str, Any]]:
-        """Get recent events from database."""
+        """Get recent events from database (both person and door events)."""
         since = datetime.now() - timedelta(minutes=minutes)
         
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT person_id, timestamp, camera_id, zone_id, zone_name, 
-                       action, confidence, snapshot_path
+                SELECT event_type, person_id, door_id, timestamp, camera_id, 
+                       zone_id, zone_name, action, confidence, snapshot_path, metadata
                 FROM events 
                 WHERE timestamp > ?
                 ORDER BY timestamp DESC
@@ -343,16 +375,29 @@ class JourneyManager:
             
             events = []
             for row in cursor.fetchall():
-                events.append({
-                    'person_id': row[0],
-                    'timestamp': row[1],
-                    'camera_id': row[2],
-                    'zone_id': row[3],
-                    'zone_name': row[4],
-                    'action': row[5],
-                    'confidence': row[6],
-                    'snapshot_path': row[7]
-                })
+                event = {
+                    'event_type': row[0] or 'person',  # Default to person for backward compat
+                    'person_id': row[1],
+                    'door_id': row[2],
+                    'timestamp': row[3],
+                    'camera_id': row[4],
+                    'zone_id': row[5],
+                    'zone_name': row[6],
+                    'action': row[7],
+                    'confidence': row[8],
+                    'snapshot_path': row[9]
+                }
+                
+                # Parse metadata if present
+                if row[10]:
+                    try:
+                        import json
+                        metadata = json.loads(row[10])
+                        event.update(metadata)
+                    except:
+                        pass
+                
+                events.append(event)
         
         return events
     

@@ -33,7 +33,7 @@ from storage.video_manager import CircularVideoBuffer
 try:
     from flask import Flask
     from flask_cors import CORS
-    from web.app import app
+    from web.app import app, broadcast_event
     WEB_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Web interface not available: {e}")
@@ -249,6 +249,16 @@ class OptimizedAirbnbMonitor:
                     # Send door event to specific webhook
                     self.send_door_event(event, frame)
                     print(f"Door event: {event['event']} - {event.get('door_id', 'unknown')}")
+                    
+                    # Broadcast to web interface
+                    if WEB_AVAILABLE:
+                        try:
+                            # Store door event in journey manager for persistence
+                            self.journey_manager.store_door_event(event)
+                            # Broadcast to web clients
+                            broadcast_event(event)
+                        except Exception as e:
+                            print(f"Failed to broadcast door event: {e}")
             
             # PERIODIC: Zone detection (every 30 frames)
             if self.frame_counter - last_zone_detection >= self.zone_detect_interval:
@@ -272,6 +282,13 @@ class OptimizedAirbnbMonitor:
                             # Send person event to specific webhook
                             self.send_person_event(event, frame)
                             print(f"Person event: {event['action']} - {event.get('person_id', 'unknown')}")
+                            
+                            # Broadcast to web interface
+                            if WEB_AVAILABLE:
+                                try:
+                                    broadcast_event(event)
+                                except Exception as e:
+                                    print(f"Failed to broadcast person event: {e}")
             
             # ALWAYS: Record video (if enabled)
             if self.recording_enabled:

@@ -136,6 +136,24 @@ def get_stats():
     return jsonify(stats)
 
 
+@app.route('/api/doors')
+def get_doors():
+    """Get current door states."""
+    monitor = app.config.get('monitor')
+    if monitor and hasattr(monitor, 'door_detector'):
+        door_states = []
+        for door in monitor.door_detector.doors:
+            door_states.append({
+                'door_id': door.id,
+                'state': door.current_state,
+                'confidence': door.confidence,
+                'last_change': door.last_change.isoformat(),
+                'bbox': door.bbox
+            })
+        return jsonify(door_states)
+    return jsonify([])
+
+
 @app.route('/api/frame')
 def get_frame():
     """Get current camera frame."""
@@ -219,6 +237,13 @@ def update_frame(frame):
 
 def broadcast_event(event):
     """Broadcast an event to all connected clients."""
+    # Ensure event has event_type for proper frontend handling
+    if 'event_type' not in event:
+        if any(key in event for key in ['door_id', 'door_opened', 'door_closed', 'door_discovered']):
+            event['event_type'] = 'door'
+        elif 'person_id' in event:
+            event['event_type'] = 'person'
+    
     socketio.emit('new_event', event, broadcast=True)
 
 

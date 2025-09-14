@@ -19,6 +19,13 @@ door_detection:
   edge_threshold2: 150  # Canny edge threshold 2
   change_threshold: 0.3  # 30% change triggers state change
   min_edge_density: 0.1  # Minimum edge density for valid door
+  
+  # Temporal filtering to prevent false alarms
+  state_confirmation_frames: 8  # Require 8 consecutive frames to confirm state change
+  min_seconds_between_changes: 2.0  # Minimum 2 seconds between state changes
+  closed_threshold: 0.8  # Similarity > 0.8 = door closed (increased from 0.7)
+  open_threshold: 0.2  # Similarity < 0.2 = door open (decreased from 0.3)
+  noise_kernel_size: 3  # Gaussian blur kernel size for noise reduction
 
 # Person detection settings - optimized
 detection:

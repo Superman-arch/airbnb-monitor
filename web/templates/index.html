@@ -153,6 +153,45 @@
             border-left-color: #e74c3c;
         }
         
+        .event-door-opened {
+            border-left-color: #f39c12;
+            background: #fef5e7;
+        }
+        
+        .event-door-closed {
+            border-left-color: #95a5a6;
+            background: #ecf0f1;
+        }
+        
+        .event-door-discovered {
+            border-left-color: #9b59b6;
+            background: #f4ecf7;
+        }
+        
+        .event-door-left-open {
+            border-left-color: #e74c3c;
+            background: #fadbd8;
+        }
+        
+        .door-status {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            margin-left: 0.5rem;
+        }
+        
+        .door-open {
+            background: #e8f8f5;
+            color: #27ae60;
+        }
+        
+        .door-closed {
+            background: #ecf0f1;
+            color: #7f8c8d;
+        }
+        
         .event-time {
             font-size: 0.85rem;
             color: #666;
@@ -472,12 +511,49 @@
             
             events.slice(0, 20).forEach(event => {
                 const item = document.createElement('li');
-                item.className = `event-item event-${event.action}`;
                 const time = new Date(event.timestamp).toLocaleTimeString();
-                item.innerHTML = `
-                    <div><strong>${event.person_id}</strong> ${event.action} ${event.zone_name || 'zone'}</div>
-                    <div class="event-time">${time}</div>
-                `;
+                
+                if (event.event_type === 'door') {
+                    // Door event
+                    const eventClass = event.action ? `event-door-${event.action}` : 'event-item';
+                    item.className = `event-item ${eventClass}`;
+                    
+                    let doorIcon = '🚪';
+                    let actionText = event.action || event.event;
+                    
+                    if (event.action === 'opened' || event.event === 'door_opened') {
+                        doorIcon = '🔓';
+                        actionText = 'opened';
+                    } else if (event.action === 'closed' || event.event === 'door_closed') {
+                        doorIcon = '🔒';
+                        actionText = 'closed';
+                    } else if (event.action === 'discovered' || event.event === 'door_discovered') {
+                        doorIcon = '🔍';
+                        actionText = 'discovered';
+                    } else if (event.action === 'left_open' || event.event === 'door_left_open') {
+                        doorIcon = '⚠️';
+                        actionText = 'left open';
+                    }
+                    
+                    item.innerHTML = `
+                        <div>
+                            ${doorIcon} <strong>${event.door_id || 'Door'}</strong> ${actionText}
+                            ${event.confidence ? `<span style="color: #666; font-size: 0.8rem;">(${(event.confidence * 100).toFixed(0)}%)</span>` : ''}
+                        </div>
+                        <div class="event-time">${time}</div>
+                    `;
+                } else {
+                    // Person event
+                    item.className = `event-item event-${event.action}`;
+                    const personIcon = event.action === 'entry' ? '👤➡️' : '👤⬅️';
+                    item.innerHTML = `
+                        <div>
+                            ${personIcon} <strong>${event.person_id}</strong> ${event.action} ${event.zone_name || 'zone'}
+                        </div>
+                        <div class="event-time">${time}</div>
+                    `;
+                }
+                
                 list.appendChild(item);
             });
             
@@ -516,7 +592,40 @@
         socket.on('new_event', function(event) {
             console.log('New event:', event);
             loadEvents();
+            
+            // Show notification for door events
+            if (event.event_type === 'door' || event.event?.startsWith('door_')) {
+                const doorId = event.door_id || 'Door';
+                const action = event.action || event.event?.replace('door_', '') || 'changed';
+                
+                // Update door status if we have a door zones section
+                updateDoorStatus(doorId, action);
+            }
         });
+        
+        function updateDoorStatus(doorId, status) {
+            // Find door in zone list and update its status
+            const zoneList = document.getElementById('zoneList');
+            const zones = zoneList.getElementsByClassName('zone-item');
+            
+            for (let zone of zones) {
+                const nameElement = zone.querySelector('.zone-name');
+                if (nameElement && nameElement.textContent.includes(doorId)) {
+                    // Remove existing status
+                    const existingStatus = zone.querySelector('.door-status');
+                    if (existingStatus) {
+                        existingStatus.remove();
+                    }
+                    
+                    // Add new status
+                    const statusSpan = document.createElement('span');
+                    statusSpan.className = `door-status door-${status}`;
+                    statusSpan.textContent = status.toUpperCase();
+                    nameElement.parentElement.appendChild(statusSpan);
+                    break;
+                }
+            }
+        }
         
         socket.on('zones_update', function(zones) {
             loadZones();

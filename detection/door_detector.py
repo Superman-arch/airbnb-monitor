@@ -25,6 +25,13 @@ class Door:
         self.change_history = deque(maxlen=100)
         self.confidence = 0.0
         
+        # Temporal filtering
+        self.state_buffer = deque(maxlen=10)  # Buffer for state confirmations
+        self.pending_state = None
+        self.pending_state_count = 0
+        self.min_state_duration = timedelta(seconds=2)  # Minimum time between state changes
+        self.last_event_time = datetime.now()
+        
     def get_region(self, frame: np.ndarray) -> np.ndarray:
         """Extract door region from frame."""
         x, y, w, h = self.bbox
@@ -62,6 +69,13 @@ class DoorDetector:
         self.edge_threshold2 = door_config.get('edge_threshold2', 150)
         self.change_threshold = door_config.get('change_threshold', 0.3)
         self.min_edge_density = door_config.get('min_edge_density', 0.1)
+        
+        # Temporal filtering parameters
+        self.state_confirmation_frames = door_config.get('state_confirmation_frames', 8)
+        self.min_seconds_between_changes = door_config.get('min_seconds_between_changes', 2.0)
+        self.closed_threshold = door_config.get('closed_threshold', 0.8)  # Increased from 0.7
+        self.open_threshold = door_config.get('open_threshold', 0.2)  # Decreased from 0.3
+        self.noise_kernel_size = door_config.get('noise_kernel_size', 3)
         
         # State
         self.learning_phase = True
@@ -173,9 +187,20 @@ class DoorDetector:
                 baseline_frame = self.learning_frames[-1]
                 door_region = baseline_frame[y:y+h, x:x+w]
                 
-                # Calculate baseline edges
+                # Calculate baseline edges with noise reduction
                 gray_region = cv2.cvtColor(door_region, cv2.COLOR_BGR2GRAY)
+                
+                # Apply Gaussian blur to reduce noise in baseline
+                if self.noise_kernel_size > 1:
+                    gray_region = cv2.GaussianBlur(gray_region,
+                                                  (self.noise_kernel_size, self.noise_kernel_size), 0)
+                
                 baseline_edges = cv2.Canny(gray_region, self.edge_threshold1, self.edge_threshold2)
+                
+                # Clean up baseline edges
+                kernel = np.ones((2, 2), np.uint8)
+                baseline_edges = cv2.morphologyEx(baseline_edges, cv2.MORPH_CLOSE, kernel)
+                baseline_edges = cv2.morphologyEx(baseline_edges, cv2.MORPH_OPEN, kernel)
                 
                 # Create door object
                 door_id = f"door_{i+1:03d}"
@@ -255,9 +280,20 @@ class DoorDetector:
             # Extract door region
             door_region = door.get_region(frame)
             
-            # Calculate current edges
+            # Calculate current edges with noise reduction
             gray_region = cv2.cvtColor(door_region, cv2.COLOR_BGR2GRAY)
+            
+            # Apply Gaussian blur to reduce noise
+            if self.noise_kernel_size > 1:
+                gray_region = cv2.GaussianBlur(gray_region, 
+                                              (self.noise_kernel_size, self.noise_kernel_size), 0)
+            
             current_edges = cv2.Canny(gray_region, self.edge_threshold1, self.edge_threshold2)
+            
+            # Apply morphological operations to clean up edges
+            kernel = np.ones((2, 2), np.uint8)
+            current_edges = cv2.morphologyEx(current_edges, cv2.MORPH_CLOSE, kernel)
+            current_edges = cv2.morphologyEx(current_edges, cv2.MORPH_OPEN, kernel)
             
             # Compare to baseline
             similarity = self._calculate_edge_similarity(door.baseline_edges, current_edges)
@@ -266,34 +302,66 @@ class DoorDetector:
             # Determine current state
             new_state = self._determine_state_from_similarity(similarity)
             
-            # Check for state change
-            if new_state != door.current_state:
-                # State changed
-                door.previous_state = door.current_state
-                door.current_state = new_state
-                door.last_change = datetime.now()
+            # Add to state buffer for temporal filtering
+            door.state_buffer.append(new_state)
+            
+            # Check if we have a pending state change
+            if door.pending_state != new_state:
+                # New potential state change
+                door.pending_state = new_state
+                door.pending_state_count = 1
+            else:
+                # Continue tracking pending state
+                door.pending_state_count += 1
+            
+            # Check if state change should be confirmed
+            time_since_last_change = (datetime.now() - door.last_change).total_seconds()
+            time_since_last_event = (datetime.now() - door.last_event_time).total_seconds()
+            
+            # Require: 1) Enough confirmations, 2) Minimum time passed, 3) Different from current state
+            if (door.pending_state_count >= self.state_confirmation_frames and
+                time_since_last_change >= self.min_seconds_between_changes and
+                door.pending_state != door.current_state and
+                time_since_last_event >= 1.0):  # Prevent event spam
                 
-                # Record change
-                door.change_history.append({
-                    'timestamp': door.last_change,
-                    'from_state': door.previous_state,
-                    'to_state': new_state,
-                    'confidence': similarity
-                })
+                # Count how many recent frames agree with pending state
+                recent_states = list(door.state_buffer)[-self.state_confirmation_frames:]
+                state_agreement = sum(1 for s in recent_states if s == door.pending_state)
                 
-                # Create event
-                event = {
-                    'event': f'door_{new_state}',
-                    'door_id': door.id,
-                    'timestamp': door.last_change,
-                    'previous_state': door.previous_state,
-                    'current_state': new_state,
-                    'confidence': similarity,
-                    'bbox': door.bbox
-                }
-                events.append(event)
-                
-                print(f"{door.id}: {door.previous_state} -> {new_state} (confidence: {similarity:.2f})")
+                # Require 80% agreement for state change
+                if state_agreement >= self.state_confirmation_frames * 0.8:
+                    # Confirmed state change
+                    door.previous_state = door.current_state
+                    door.current_state = door.pending_state
+                    door.last_change = datetime.now()
+                    door.last_event_time = datetime.now()
+                    
+                    # Record change
+                    door.change_history.append({
+                        'timestamp': door.last_change,
+                        'from_state': door.previous_state,
+                        'to_state': door.current_state,
+                        'confidence': similarity
+                    })
+                    
+                    # Create event only for meaningful state changes
+                    if door.current_state in ['open', 'closed']:
+                        event = {
+                            'event': f'door_{door.current_state}',
+                            'door_id': door.id,
+                            'timestamp': door.last_change,
+                            'previous_state': door.previous_state,
+                            'current_state': door.current_state,
+                            'confidence': similarity,
+                            'bbox': door.bbox
+                        }
+                        events.append(event)
+                        
+                        print(f"{door.id}: {door.previous_state} -> {door.current_state} (confidence: {similarity:.2f}, confirmed after {door.pending_state_count} frames)")
+                    
+                    # Reset pending state
+                    door.pending_state = None
+                    door.pending_state_count = 0
             
             # Track open duration
             if door.current_state == "open":
@@ -343,16 +411,19 @@ class DoorDetector:
             return "open"
     
     def _determine_state_from_similarity(self, similarity: float) -> str:
-        """Determine door state from similarity score."""
+        """Determine door state from similarity score with hysteresis."""
         # High similarity to baseline = same state as baseline
         # Low similarity = state changed
+        # Using higher thresholds to reduce false positives
         
-        if similarity > 0.7:
+        if similarity > self.closed_threshold:  # 0.8 by default
             return "closed"  # Similar to baseline (usually closed)
-        elif similarity < 0.3:
+        elif similarity < self.open_threshold:  # 0.2 by default
             return "open"    # Very different from baseline
         else:
-            return "moving"  # Transitioning
+            # In the middle zone - maintain previous state (hysteresis)
+            # This prevents oscillation in borderline cases
+            return "moving"  # Only use moving for true transitions
     
     def draw_doors(self, frame: np.ndarray) -> np.ndarray:
         """Draw door overlays on frame."""
