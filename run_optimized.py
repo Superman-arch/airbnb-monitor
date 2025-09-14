@@ -287,7 +287,10 @@ class OptimizedAirbnbMonitor:
                     log_msg = f"Door event: {door_name} - {event['event']}"
                     print(log_msg)
                     if WEB_AVAILABLE:
-                        broadcast_log(log_msg, 'warning' if 'open' in event['event'] else 'info')
+                        try:
+                            broadcast_log(log_msg, 'warning' if 'open' in event['event'] else 'info')
+                        except:
+                            pass  # Ignore broadcast errors
                     
                     # Broadcast to web interface
                     if WEB_AVAILABLE:
@@ -297,7 +300,8 @@ class OptimizedAirbnbMonitor:
                             # Broadcast to web clients
                             broadcast_event(event)
                         except Exception as e:
-                            print(f"Failed to broadcast door event: {e}")
+                            # Don't crash on broadcast errors
+                            pass
             
             # PERIODIC: Zone detection (every 30 frames)
             if self.frame_counter - last_zone_detection >= self.zone_detect_interval:
@@ -348,15 +352,20 @@ class OptimizedAirbnbMonitor:
                 stats_msg = f"FPS: {current_fps:.1f} | Doors: {len(self.door_detector.doors)} | Persons: {len(tracked_persons)} | Frame: {self.frame_counter}"
                 print(stats_msg)
                 
-                # Broadcast stats to web interface
+                # Broadcast stats to web interface (with error handling)
                 if WEB_AVAILABLE:
-                    broadcast_stats({
-                        'fps': current_fps,
-                        'doors': len(self.door_detector.doors),
-                        'persons': len(tracked_persons),
-                        'frame': self.frame_counter
-                    })
-                    broadcast_log(stats_msg, 'info')
+                    try:
+                        broadcast_stats({
+                            'fps': current_fps,
+                            'doors': len(self.door_detector.doors),
+                            'persons': len(tracked_persons),
+                            'frame': self.frame_counter
+                        })
+                        broadcast_log(stats_msg, 'info')
+                    except Exception as e:
+                        # Don't crash if web broadcast fails
+                        if self.frame_counter % 300 == 0:  # Log every 10 seconds
+                            print(f"Warning: Could not broadcast stats: {e}")
             
             # Show frame (optional - disable for better performance)
             if self.config.get('display', {}).get('enabled', False):

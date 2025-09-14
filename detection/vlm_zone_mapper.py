@@ -35,7 +35,10 @@ except ImportError:
         pass
 
 if not VLM_AVAILABLE:
-    print("Warning: No VLM backend available. Install jetson-inference or llamafile.")
+    # Only show warning if VLM is explicitly enabled in config
+    import os
+    if os.environ.get('VLM_VERBOSE', '').lower() == 'true':
+        print("Info: VLM backend not available. This is optional for zone calibration.")
 
 
 @dataclass

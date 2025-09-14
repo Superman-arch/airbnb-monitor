@@ -53,7 +53,8 @@ class CircularVideoBuffer:
         self.retention_hours = storage_config.get('video_retention_hours', 48)
         self.segment_duration = storage_config.get('segment_duration_minutes', 60)
         self.storage_path = storage_config.get('storage_path', './storage/videos')
-        self.video_codec = storage_config.get('video_codec', 'mp4v')
+        # Use H264 codec for Jetson (better compatibility)
+        self.video_codec = storage_config.get('video_codec', 'h264')
         self.video_quality = storage_config.get('video_quality', 23)
         
         # Create storage directory
@@ -181,11 +182,33 @@ class CircularVideoBuffer:
                 segment_id, now, self.segment_duration, file_path
             )
             
-            # Create video writer
-            fourcc = cv2.VideoWriter_fourcc(*self.video_codec)
-            self.current_writer = cv2.VideoWriter(
-                file_path, fourcc, self.fps, self.camera_resolution
-            )
+            # Create video writer with proper codec
+            try:
+                # Try H264 first (best for Jetson)
+                if self.video_codec == 'h264':
+                    fourcc = cv2.VideoWriter_fourcc(*'H264')
+                elif self.video_codec == 'mp4v':
+                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                else:
+                    # Fallback to MJPEG (always works)
+                    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+                    file_path = file_path.replace('.mp4', '.avi')
+                
+                self.current_writer = cv2.VideoWriter(
+                    file_path, fourcc, self.fps, self.camera_resolution
+                )
+                
+                if not self.current_writer.isOpened():
+                    # Fallback to MJPEG if codec fails
+                    print(f"Warning: {self.video_codec} codec failed, using MJPEG")
+                    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+                    file_path = file_path.replace('.mp4', '.avi')
+                    self.current_writer = cv2.VideoWriter(
+                        file_path, fourcc, self.fps, self.camera_resolution
+                    )
+            except Exception as e:
+                print(f"Error creating video writer: {e}")
+                self.current_writer = None
             
             # Add to segments list
             self.segments.append(self.current_segment)

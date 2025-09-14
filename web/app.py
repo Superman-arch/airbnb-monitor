@@ -380,7 +380,7 @@ def broadcast_event(event):
         elif 'person_id' in event:
             event['event_type'] = 'person'
     
-    socketio.emit('new_event', event, broadcast=True)
+    socketio.emit('new_event', event, to='/')
 
 
 def broadcast_log(message, level='info'):
@@ -391,12 +391,12 @@ def broadcast_log(message, level='info'):
         'level': level,
         'message': message
     }
-    socketio.emit('log_message', log_entry, broadcast=True)
+    socketio.emit('log_message', log_entry, to='/')
 
 
 def broadcast_stats(stats):
     """Broadcast system statistics to all connected clients."""
-    socketio.emit('stats_update', stats, broadcast=True)
+    socketio.emit('stats_update', stats, to='/')
 
 
 if __name__ == '__main__':
