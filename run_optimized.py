@@ -193,7 +193,7 @@ class OptimizedAirbnbMonitor:
             
             # Handle door state change events
             for event in door_events:
-                if event['event'] in ['door_open', 'door_closed', 'door_moving', 'door_left_open']:
+                if event['event'] in ['door_opened', 'door_closed', 'door_moving', 'door_left_open', 'door_discovered']:
                     # Send door event to specific webhook
                     self.send_door_event(event, frame)
                     print(f"Door event: {event['event']} - {event.get('door_id', 'unknown')}")

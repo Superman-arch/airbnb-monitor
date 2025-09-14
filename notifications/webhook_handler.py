@@ -125,22 +125,43 @@ class WebhookHandler:
                              frame: Optional[np.ndarray] = None,
                              journey: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Prepare notification payload."""
+        # Base notification
         notification = {
-            'event_type': event.get('action', 'detection'),
+            'event_type': event.get('event', event.get('action', 'detection')),
             'timestamp': event.get('timestamp', datetime.now()).isoformat(),
-            'person': {
-                'id': event.get('person_id'),
-                'confidence': event.get('confidence', 0.0)
-            },
-            'door': {
-                'id': event.get('zone_id'),
-                'name': event.get('zone_name', 'Unknown'),
-                'type': event.get('zone_type', 'unknown')
-            },
             'camera': {
                 'id': event.get('camera_id', 'camera_1')
             }
         }
+        
+        # Add person data if this is a person event
+        if 'person_id' in event:
+            notification['person'] = {
+                'id': event.get('person_id'),
+                'confidence': event.get('confidence', 0.0)
+            }
+            # Add zone/door info for person events
+            if event.get('zone_id'):
+                notification['zone'] = {
+                    'id': event.get('zone_id'),
+                    'name': event.get('zone_name', 'Unknown'),
+                    'type': event.get('zone_type', 'unknown')
+                }
+        
+        # Add door data if this is a door event
+        if 'door_id' in event:
+            notification['door'] = {
+                'id': event.get('door_id'),
+                'state': event.get('current_state', event.get('state', 'unknown')),
+                'previous_state': event.get('previous_state'),
+                'confidence': event.get('confidence', 0.0)
+            }
+            # Add bbox if available
+            if 'bbox' in event:
+                notification['door']['location'] = event['bbox']
+            # Add duration for door_left_open events
+            if 'duration_seconds' in event:
+                notification['door']['duration_open'] = event['duration_seconds']
         
         # Add snapshot if available
         if self.include_snapshot and frame is not None:
@@ -218,7 +239,13 @@ class WebhookHandler:
             
             if response.status_code == 200:
                 self.notifications_sent += 1
-                print(f"Notification sent for person {notification['person']['id']}")
+                # Handle both person and door notifications
+                if 'person' in notification:
+                    print(f"Notification sent for person {notification['person']['id']}")
+                elif 'door' in notification:
+                    print(f"Notification sent for door {notification['door']['id']}")
+                else:
+                    print(f"Notification sent: {notification.get('event_type', 'unknown')}")
             else:
                 self.notifications_failed += 1
                 print(f"Webhook failed with status {response.status_code}")
