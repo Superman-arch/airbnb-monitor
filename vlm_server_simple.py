@@ -91,17 +91,21 @@ def load_model_simple():
                 low_cpu_mem_usage=True,
                 max_memory={0: "6.5GB", "cpu": "1.5GB"},
                 offload_folder="offload",
-                _attn_implementation='eager'
+                attn_implementation="eager",  # Force eager attention (no flash)
+                use_flash_attention_2=False  # Explicitly disable flash attention
             )
             logger.info("✓ Model loaded on GPU with fp16")
         else:
             # CPU-only fallback
+            logger.info("CUDA not available, loading on CPU...")
             model = AutoModelForCausalLM.from_pretrained(
                 model_id,
                 device_map={"": "cpu"},
                 trust_remote_code=True,
                 torch_dtype=torch.float32,
-                low_cpu_mem_usage=True
+                low_cpu_mem_usage=True,
+                attn_implementation="eager",  # Force eager attention
+                use_flash_attention_2=False  # Explicitly disable flash attention
             )
             logger.info("✓ Model loaded on CPU")
         
