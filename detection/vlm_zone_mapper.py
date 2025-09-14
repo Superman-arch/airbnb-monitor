@@ -109,14 +109,14 @@ class VLMZoneMapper:
             return self._fallback_detection(frame)
     
     def _analyze_with_llamafile(self, frame: np.ndarray) -> List[DoorZone]:
-        """Analyze using llamafile/Phi Vision."""
+        """Analyze using Phi-4 Multimodal (OpenAI-compatible API)."""
         # Convert frame to base64
         _, buffer = cv2.imencode('.jpg', frame)
         img_base64 = base64.b64encode(buffer).decode('utf-8')
+        img_data_url = f"data:image/jpeg;base64,{img_base64}"
         
-        # Prepare VLM prompt
-        prompt = """<image>
-Analyze this image and identify all doors visible. For each door:
+        # Prepare prompt for Phi-4
+        text_prompt = """Analyze this image and identify all doors visible. For each door:
 1. Describe its location in the image (left, right, center, top, bottom)
 2. Describe what type of door it is (entrance, interior, bathroom, bedroom, etc.)
 3. Describe any distinguishing features
@@ -136,12 +136,18 @@ Respond in JSON format:
 }"""
         
         try:
-            # Call VLM API
+            # Call Phi-4 using OpenAI-compatible API
             response = requests.post(
                 self.vlm_endpoint,
                 json={
-                    "prompt": prompt,
-                    "image": img_base64,
+                    "model": self.vlm_model,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": img_data_url}},
+                            {"type": "text", "text": text_prompt}
+                        ]
+                    }],
                     "temperature": 0.1,
                     "max_tokens": 500
                 },
@@ -194,8 +200,10 @@ Respond in JSON format:
         height, width = image_shape[:2]
         
         try:
-            # Extract JSON from response
-            if 'content' in response:
+            # Extract content from OpenAI-format response
+            if 'choices' in response and len(response['choices']) > 0:
+                content = response['choices'][0]['message']['content']
+            elif 'content' in response:
                 content = response['content']
             else:
                 content = response.get('response', '{}')

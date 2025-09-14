@@ -39,125 +39,61 @@ check_memory() {
 # Main menu
 echo "Select VLM deployment method:"
 echo ""
-echo "1) Phi 3.5 Vision (Recommended - 3.8GB, fastest)"
-echo "2) LLaVA 1.5 7B (Better accuracy - 7GB, slower)"
-echo "3) llamafile Server (Easy setup, various models)"
-echo "4) Skip VLM setup (use fallback edge detection)"
+echo "1) Phi-4 Multimodal (Recommended - 7.7GB Docker, best accuracy)"
+echo "2) llamafile Server (Easy setup, no Docker needed)"
+echo "3) Skip VLM setup (use fallback edge detection)"
 echo ""
-read -p "Enter choice (1-4): " CHOICE
+read -p "Enter choice (1-3): " CHOICE
 
 case $CHOICE in
     1)
         echo ""
-        echo "Setting up Phi 3.5 Vision..."
+        echo "Setting up Phi-4 Multimodal..."
         echo ""
         
-        # Option 1: Using NVIDIA Jetson containers
-        echo "Pulling Phi Vision container..."
-        sudo docker pull dustynv/transformers:r36.3.0
+        # Pull Phi-4 Multimodal container
+        echo "Pulling Phi-4 Multimodal container (7.7GB)..."
+        echo "This may take a while depending on your internet speed."
+        sudo docker pull bhimrazy/phi-4-multimodal:latest
         
-        # Create runner script
-        cat > run_phi_vision.py << 'EOF'
-#!/usr/bin/env python3
-"""Phi Vision VLM server for door zone mapping."""
-
-import os
-import json
-import base64
-from flask import Flask, request, jsonify
-from PIL import Image
-from io import BytesIO
-import torch
-from transformers import AutoModelForCausalLM, AutoProcessor
-
-app = Flask(__name__)
-
-# Load model
-print("Loading Phi-3.5-vision model...")
-model_id = "microsoft/Phi-3.5-vision-instruct"
-processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
-model = AutoModelForCausalLM.from_pretrained(
-    model_id,
-    torch_dtype=torch.float16,
-    device_map="cuda",
-    trust_remote_code=True
-)
-
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({"status": "healthy", "model": "phi-3.5-vision"})
-
-@app.route('/completion', methods=['POST'])
-def completion():
-    data = request.json
-    prompt = data.get('prompt', '')
-    image_b64 = data.get('image', '')
-    
-    # Decode image
-    image = Image.open(BytesIO(base64.b64decode(image_b64)))
-    
-    # Process with model
-    inputs = processor(prompt, image, return_tensors="pt").to("cuda")
-    
-    with torch.no_grad():
-        output = model.generate(**inputs, max_new_tokens=500, temperature=0.1)
-    
-    response = processor.decode(output[0], skip_special_tokens=True)
-    
-    return jsonify({"content": response})
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080)
-EOF
+        # Check if container already exists
+        if docker ps -a | grep -q vlm-server; then
+            echo "Removing existing VLM container..."
+            docker stop vlm-server 2>/dev/null
+            docker rm vlm-server 2>/dev/null
+        fi
         
         # Create service script
-        cat > start_phi_vision.sh << 'EOF'
+        cat > start_phi4_vision.sh << 'EOF'
 #!/bin/bash
-echo "Starting Phi Vision VLM server..."
-sudo docker run -d \
+echo "Starting Phi-4 Multimodal VLM server..."
+
+# Check if container is already running
+if docker ps | grep -q vlm-server; then
+    echo "VLM server is already running. Stopping it first..."
+    docker stop vlm-server
+    docker rm vlm-server
+fi
+
+# Start Phi-4 container
+docker run -d \
     --name vlm-server \
     --runtime nvidia \
     --restart unless-stopped \
-    -p 8080:8080 \
-    -v $(pwd)/run_phi_vision.py:/app/server.py:ro \
-    dustynv/transformers:r36.3.0 \
-    python3 /app/server.py
+    -p 8000:8000 \
+    bhimrazy/phi-4-multimodal:latest
+
+echo "VLM server started on port 8000"
+echo "Test with: curl http://localhost:8000/v1/models"
 EOF
-        chmod +x start_phi_vision.sh
+        chmod +x start_phi4_vision.sh
         
         echo ""
-        echo "✓ Phi Vision setup complete!"
-        echo "Start server with: ./start_phi_vision.sh"
+        echo "✓ Phi-4 Multimodal setup complete!"
+        echo "Start server with: ./start_phi4_vision.sh"
         ;;
         
     2)
-        echo ""
-        echo "Setting up LLaVA 1.5..."
-        echo ""
-        
-        # Pull LLaVA container
-        sudo docker pull dustynv/llava:r36.2.0
-        
-        # Create LLaVA runner
-        cat > start_llava.sh << 'EOF'
-#!/bin/bash
-echo "Starting LLaVA VLM server..."
-sudo docker run -d \
-    --name vlm-server \
-    --runtime nvidia \
-    --restart unless-stopped \
-    -p 8080:8080 \
-    -v /tmp/vlm:/tmp/vlm \
-    dustynv/llava:r36.2.0 \
-    python3 -m llava.serve.api --model-path liuhaotian/llava-v1.5-7b --port 8080
-EOF
-        chmod +x start_llava.sh
-        
-        echo "✓ LLaVA setup complete!"
-        echo "Start server with: ./start_llava.sh"
-        ;;
-        
-    3)
         echo ""
         echo "Setting up llamafile server..."
         echo ""
@@ -179,7 +115,7 @@ EOF
         echo "Start server with: ./start_llamafile.sh"
         ;;
         
-    4)
+    3)
         echo ""
         echo "Skipping VLM setup."
         echo "The system will use edge detection for door zones."
@@ -193,7 +129,7 @@ EOF
 esac
 
 # Add VLM config to settings
-if [ "$CHOICE" != "4" ]; then
+if [ "$CHOICE" != "3" ]; then
     echo ""
     echo "Updating configuration..."
     
@@ -206,8 +142,8 @@ if [ "$CHOICE" != "4" ]; then
 # VLM Configuration for zone mapping
 vlm:
   enabled: true
-  endpoint: "http://localhost:8080/completion"
-  model: "phi-3.5-vision"
+  endpoint: "http://localhost:8000/v1/chat/completions"
+  model: "microsoft/Phi-4-multimodal-instruct"
   timeout: 30
 EOF
             echo "✓ Added VLM configuration to settings.yaml"
@@ -223,7 +159,7 @@ echo "Setup Complete!"
 echo "===================================="
 echo ""
 
-if [ "$CHOICE" != "4" ]; then
+if [ "$CHOICE" != "3" ]; then
     echo "Next steps:"
     echo "1. Start the VLM server (if not using llamafile):"
     echo "   ./start_*.sh"

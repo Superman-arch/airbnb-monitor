@@ -91,11 +91,11 @@ door_detection:
 
 # VLM Configuration for intelligent zone mapping
 vlm:
-  enabled: false  # Set to true after running setup_vlm_jetson.sh
-  endpoint: "http://localhost:8080/completion"
-  model: "phi-3.5-vision"  # Options: phi-3.5-vision, llava-1.5, llamafile
+  enabled: true  # VLM enabled for intelligent door detection
+  endpoint: "http://localhost:8080/v1/chat/completions"  # LlamaFile API endpoint
+  model: "Phi-3.5-vision-instruct"  # Using Phi-3.5 Vision via llamafile (2.5GB, optimized for Jetson)
   timeout: 30  # Seconds to wait for VLM response
   calibration:
-    auto_calibrate_on_start: false  # Automatically calibrate zones on startup
+    auto_calibrate_on_start: true  # Automatically calibrate zones on startup
     recalibrate_interval: 86400  # Recalibrate every 24 hours (in seconds)
     save_zone_images: true  # Save cropped images of each detected door zone

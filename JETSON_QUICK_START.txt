@@ -1,0 +1,33 @@
+QUICK START - Phi-4 VLM on Jetson Nano
+=======================================
+
+RUN THESE COMMANDS ON YOUR JETSON:
+
+1. Pull the Phi-4 container (7.7GB):
+   docker pull bhimrazy/phi-4-multimodal:latest
+
+2. Start VLM server:
+   ./start_phi4_vision.sh
+
+3. Verify it's running:
+   curl http://localhost:8000/v1/models
+
+4. Run monitoring with VLM:
+   python3 run_optimized.py
+
+5. Open web interface and click "Calibrate Doors":
+   http://<jetson-ip>:5000
+
+THAT'S IT! The VLM will:
+- Detect all doors in view
+- Name them intelligently (Main Entrance, Bathroom, etc.)
+- Create tracking zones automatically
+- Run 100% locally on your Jetson
+
+If you get memory errors, stop other services:
+   sudo systemctl stop cups
+   sudo systemctl stop bluetooth
+
+Alternative if Docker fails:
+   ./setup_vlm_jetson.sh
+   # Choose option 2 (llamafile)
