@@ -14,6 +14,10 @@ import logging
 import warnings
 warnings.filterwarnings("ignore")
 
+# Force disable Flash Attention
+os.environ["TRANSFORMERS_USE_FLASH_ATTENTION"] = "0"
+os.environ["FLASH_ATTENTION_SKIP"] = "1"
+
 # Memory settings
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
 
@@ -92,12 +96,14 @@ def load_model_simple():
                 max_memory={0: "6.5GB", "cpu": "1.5GB"},
                 offload_folder="offload",
                 attn_implementation="eager",  # Force eager attention (no flash)
-                use_flash_attention_2=False  # Explicitly disable flash attention
+                use_flash_attention_2=False,  # Explicitly disable flash attention
+                _flash_attn_2_enabled=False  # Additional flag to force disable
             )
             logger.info("✓ Model loaded on GPU with fp16")
         else:
             # CPU-only fallback
             logger.info("CUDA not available, loading on CPU...")
+            logger.info("This will be slow. Run ./install_pytorch_cuda.sh to enable GPU")
             model = AutoModelForCausalLM.from_pretrained(
                 model_id,
                 device_map={"": "cpu"},
@@ -105,7 +111,8 @@ def load_model_simple():
                 torch_dtype=torch.float32,
                 low_cpu_mem_usage=True,
                 attn_implementation="eager",  # Force eager attention
-                use_flash_attention_2=False  # Explicitly disable flash attention
+                use_flash_attention_2=False,  # Explicitly disable flash attention
+                _flash_attn_2_enabled=False  # Additional flag
             )
             logger.info("✓ Model loaded on CPU")
         
