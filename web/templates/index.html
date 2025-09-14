@@ -321,9 +321,9 @@
             <!-- Zones Management -->
             <div>
                 <div class="card" style="margin-bottom: 2rem;">
-                    <h2>Door Zones</h2>
-                    <ul class="zone-list" id="zoneList">
-                        <!-- Zones will be populated here -->
+                    <h2>Active Doors</h2>
+                    <ul class="zone-list" id="doorList">
+                        <!-- Doors will be populated here -->
                     </ul>
                 </div>
                 
@@ -375,15 +375,12 @@
         // Initialize
         window.onload = function() {
             setupCanvas();
-            loadZones();
+            loadDoors();  // Load door states
+            loadZones();  // Keep for zone drawing functionality
             loadEvents();
             updateStats();
             
-            // Refresh data periodically
-            setInterval(() => {
-                loadEvents();
-                updateStats();
-            }, 5000);
+            // No polling - updates come via WebSocket
         };
         
         function setupCanvas() {
@@ -476,6 +473,39 @@
             }
         });
         
+        async function loadDoors() {
+            const response = await fetch('/api/doors');
+            const doors = await response.json();
+            
+            const list = document.getElementById('doorList');
+            list.innerHTML = '';
+            
+            if (doors.length === 0) {
+                list.innerHTML = '<li style="padding: 1rem; text-align: center; color: #666;">No doors detected yet</li>';
+            } else {
+                doors.forEach(door => {
+                    const item = document.createElement('li');
+                    item.className = 'zone-item';
+                    
+                    const stateColor = door.state === 'open' ? '#e74c3c' : door.state === 'closed' ? '#27ae60' : '#f39c12';
+                    const stateIcon = door.state === 'open' ? '🔓' : door.state === 'closed' ? '🔒' : '🚪';
+                    
+                    item.innerHTML = `
+                        <div>
+                            ${stateIcon} <span class="zone-name">${door.door_id || door.id}</span>
+                            <span style="display: inline-block; padding: 0.25rem 0.5rem; background: ${stateColor}; color: white; border-radius: 4px; font-size: 0.8rem; margin-left: 0.5rem;">
+                                ${door.state ? door.state.toUpperCase() : 'UNKNOWN'}
+                            </span>
+                        </div>
+                        <div style="font-size: 0.8rem; color: #666;">
+                            ${door.confidence ? `${(door.confidence * 100).toFixed(0)}%` : ''}
+                        </div>
+                    `;
+                    list.appendChild(item);
+                });
+            }
+        }
+        
         async function loadZones() {
             const response = await fetch('/api/zones');
             const zones = await response.json();
@@ -500,6 +530,55 @@
             });
             
             document.getElementById('activeZones').textContent = zones.length;
+        }
+        
+        function addEventToList(event) {
+            const list = document.getElementById('eventList');
+            const item = document.createElement('li');
+            const time = new Date(event.timestamp || new Date()).toLocaleTimeString();
+            
+            if (event.event_type === 'door') {
+                // Door event
+                const eventClass = event.action ? `event-door-${event.action}` : 'event-item';
+                item.className = `event-item ${eventClass}`;
+                
+                let doorIcon = '🚪';
+                let actionText = event.action || event.event;
+                
+                if (event.action === 'opened' || event.event === 'door_opened') {
+                    doorIcon = '🔓';
+                    actionText = 'opened';
+                } else if (event.action === 'closed' || event.event === 'door_closed') {
+                    doorIcon = '🔒';
+                    actionText = 'closed';
+                }
+                
+                item.innerHTML = `
+                    <div>
+                        ${doorIcon} <strong>${event.door_id || 'Door'}</strong> ${actionText}
+                        ${event.confidence ? `<span style="color: #666; font-size: 0.8rem;">(${(event.confidence * 100).toFixed(0)}%)</span>` : ''}
+                    </div>
+                    <div class="event-time">${time}</div>
+                `;
+            } else {
+                // Person event
+                item.className = `event-item event-${event.action || 'entry'}`;
+                const personIcon = event.action === 'entry' ? '👤➡️' : '👤⬅️';
+                item.innerHTML = `
+                    <div>
+                        ${personIcon} <strong>${event.person_id || 'Person'}</strong> ${event.action || 'detected'}
+                    </div>
+                    <div class="event-time">${time}</div>
+                `;
+            }
+            
+            // Add to top of list
+            list.insertBefore(item, list.firstChild);
+            
+            // Keep only last 20 events
+            while (list.children.length > 20) {
+                list.removeChild(list.lastChild);
+            }
         }
         
         async function loadEvents() {
@@ -591,15 +670,19 @@
         
         socket.on('new_event', function(event) {
             console.log('New event:', event);
-            loadEvents();
             
-            // Show notification for door events
+            // Add event to the top of the list
+            addEventToList(event);
+            
+            // Update stats
+            updateStats();
+            
+            // Update door status for door events
             if (event.event_type === 'door' || event.event?.startsWith('door_')) {
                 const doorId = event.door_id || 'Door';
                 const action = event.action || event.event?.replace('door_', '') || 'changed';
-                
-                // Update door status if we have a door zones section
                 updateDoorStatus(doorId, action);
+                loadDoors();
             }
         });
         

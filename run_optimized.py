@@ -202,6 +202,10 @@ class OptimizedAirbnbMonitor:
         
         def run_web_server():
             try:
+                # Initialize the web app with monitor instance
+                from web.app import init_app
+                init_app(self.config, monitor=self)
+                
                 # Pass reference to this monitor for frame access
                 app.config['monitor'] = self
                 app.config['zone_detector'] = self.zone_detector

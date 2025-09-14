@@ -26,17 +26,26 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 # Global references to system components
 zone_detector = None
 journey_manager = None
+monitor_instance = None
 current_frame = None
 frame_lock = threading.Lock()
 
 
-def init_app(config):
+def init_app(config, monitor=None):
     """Initialize the web app with system components."""
-    global zone_detector, journey_manager
-    zone_detector = app.config.get('zone_detector') or MotionZoneDetector(config)
-    journey_manager = app.config.get('journey_manager') or JourneyManager(config)
-    if hasattr(zone_detector, 'initialize'):
-        zone_detector.initialize()
+    global zone_detector, journey_manager, monitor_instance
+    
+    # Store monitor instance
+    monitor_instance = monitor
+    if monitor:
+        app.config['monitor'] = monitor
+        zone_detector = monitor.zone_detector if hasattr(monitor, 'zone_detector') else None
+        journey_manager = monitor.journey_manager if hasattr(monitor, 'journey_manager') else None
+    else:
+        zone_detector = app.config.get('zone_detector') or MotionZoneDetector(config)
+        journey_manager = app.config.get('journey_manager') or JourneyManager(config)
+        if hasattr(zone_detector, 'initialize'):
+            zone_detector.initialize()
 
 
 @app.route('/')
@@ -97,7 +106,21 @@ def delete_zone(zone_id):
 def get_events():
     """Get recent events."""
     minutes = request.args.get('minutes', 60, type=int)
-    events = journey_manager.get_recent_events(minutes) if journey_manager else []
+    events = []
+    
+    # Try monitor instance first
+    if monitor_instance and hasattr(monitor_instance, 'journey_manager'):
+        try:
+            events = monitor_instance.journey_manager.get_recent_events(minutes)
+        except:
+            events = []
+    # Fallback to global reference
+    elif journey_manager:
+        try:
+            events = journey_manager.get_recent_events(minutes)
+        except:
+            events = []
+    
     return jsonify(events)
 
 
@@ -128,9 +151,24 @@ def get_occupancy():
 @app.route('/api/stats')
 def get_stats():
     """Get system statistics."""
+    # Get actual active persons count
+    active_persons = 0
+    active_zones = 0
+    
+    # Try monitor instance first
+    if monitor_instance:
+        if hasattr(monitor_instance, 'journey_manager'):
+            active_persons = len(monitor_instance.journey_manager.persons)
+        if hasattr(monitor_instance, 'zone_detector'):
+            active_zones = len(monitor_instance.zone_detector.get_zones())
+    # Fallback to global references
+    elif journey_manager:
+        active_persons = len(journey_manager.persons)
+        active_zones = len(zone_detector.get_zones()) if zone_detector else 0
+    
     stats = {
-        'zones': len(zone_detector.get_zones()) if zone_detector else 0,
-        'active_persons': len(journey_manager.persons) if journey_manager else 0,
+        'zones': active_zones,
+        'active_persons': active_persons,
         'timestamp': datetime.now().isoformat()
     }
     return jsonify(stats)
@@ -139,19 +177,24 @@ def get_stats():
 @app.route('/api/doors')
 def get_doors():
     """Get current door states."""
-    monitor = app.config.get('monitor')
-    if monitor and hasattr(monitor, 'door_detector'):
-        door_states = []
-        for door in monitor.door_detector.doors:
-            door_states.append({
-                'door_id': door.id,
-                'state': door.current_state,
-                'confidence': door.confidence,
-                'last_change': door.last_change.isoformat(),
-                'bbox': door.bbox
-            })
-        return jsonify(door_states)
-    return jsonify([])
+    door_states = []
+    
+    # Try monitor instance
+    if monitor_instance and hasattr(monitor_instance, 'door_detector'):
+        doors = monitor_instance.door_detector.get_doors() if hasattr(monitor_instance.door_detector, 'get_doors') else monitor_instance.door_detector.doors
+        for door in doors:
+            if hasattr(door, 'to_dict'):
+                door_states.append(door.to_dict())
+            else:
+                door_states.append({
+                    'door_id': door.id,
+                    'state': door.current_state,
+                    'confidence': getattr(door, 'confidence', 0),
+                    'last_change': door.last_change.isoformat() if hasattr(door, 'last_change') else datetime.now().isoformat(),
+                    'bbox': getattr(door, 'bbox', [])
+                })
+    
+    return jsonify(door_states)
 
 
 @app.route('/api/frame')
