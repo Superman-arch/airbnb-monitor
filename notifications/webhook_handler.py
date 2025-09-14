@@ -3,7 +3,12 @@
 import requests
 import json
 import base64
-from typing import Dict, Any, Optional, List
+from typing import Any, Optional, List
+try:
+    from typing import Dict
+except ImportError:
+    # For older Python versions
+    Dict = dict
 from datetime import datetime, timedelta
 from threading import Thread, Lock
 from queue import Queue, Empty
