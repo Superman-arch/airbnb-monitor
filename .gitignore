@@ -28,12 +28,14 @@ wheels/
 *.onnx
 *.engine
 *.trt
+*.pb
 
 # Video and Image Storage
 storage/videos/
 storage/snapshots/
 storage/clips/
 *.mp4
+*.h264
 *.avi
 *.mov
 *.jpg
@@ -53,6 +55,7 @@ logs/
 # Configuration with sensitive data
 config/detected_zones.json
 confidential.txt
+*confidential*
 
 # IDE
 .vscode/
@@ -61,6 +64,8 @@ confidential.txt
 *.swo
 *~
 .DS_Store
+*.DS_Store*
+*.AppleDouble*
 
 # Temporary files
 *.tmp
@@ -72,7 +77,6 @@ test_*.py
 tests/output/
 
 # System files
-.DS_Store
 Thumbs.db
 
 # Environment variables
