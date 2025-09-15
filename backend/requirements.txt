@@ -33,7 +33,7 @@ onnx==1.15.0
 
 # Video Streaming
 aiortc==1.5.0  # WebRTC
-av==11.0.0  # Video processing
+av==10.0.0  # Video processing - Compatible with aiortc 1.5.0
 
 # Monitoring & Logging
 # prometheus-client==0.19.0  # Pre-installed in L4T
