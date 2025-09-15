@@ -68,6 +68,18 @@ def broadcast_event(event):
 app = None
 socketio = None
 
+# Color definitions for drawing (BGR format for OpenCV)
+COLORS = {
+    'zone': (255, 255, 0),      # Yellow for zones
+    'door_open': (0, 0, 255),   # Red for open doors
+    'door_closed': (0, 255, 0),  # Green for closed doors
+    'door_unknown': (128, 128, 128),  # Gray for unknown state
+    'person': (255, 0, 255),     # Magenta for persons
+    'motion': (0, 255, 255),     # Cyan for motion
+    'text': (255, 255, 255),     # White for text
+    'background': (0, 0, 0)      # Black for background
+}
+
 
 class OptimizedAirbnbMonitor:
     """Optimized version for better FPS on Jetson Nano."""
@@ -660,6 +672,8 @@ class OptimizedAirbnbMonitor:
                 doors_list = doors_dict
             
             for door in doors_list:
+                # Extract door_id from door object
+                door_id = getattr(door, 'id', 'unknown')
                 x, y, w, h = door.bbox
                 
                 # Validate and adjust coordinates
