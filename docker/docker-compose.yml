@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   # PostgreSQL Database
   postgres:
@@ -42,26 +40,26 @@ services:
     networks:
       - security-net
 
-  # Inference Server (Roboflow)
-  inference:
-    image: roboflow/roboflow-inference-server-gpu:latest
-    container_name: security-inference
-    restart: unless-stopped
-    runtime: nvidia
-    environment:
-      - ROBOFLOW_API_KEY=${ROBOFLOW_API_KEY:-}
-      - NUM_WORKERS=1
-    ports:
-      - "9001:9001"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    networks:
-      - security-net
+  # Inference Server - Commented out for ARM64 compatibility
+  # inference:
+  #   image: roboflow/roboflow-inference-server-gpu:latest
+  #   container_name: security-inference
+  #   restart: unless-stopped
+  #   runtime: nvidia
+  #   environment:
+  #     - ROBOFLOW_API_KEY=${ROBOFLOW_API_KEY:-}
+  #     - NUM_WORKERS=1
+  #   ports:
+  #     - "9001:9001"
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #   networks:
+  #     - security-net
 
   # Backend API
   backend:
@@ -77,8 +75,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      inference:
-        condition: service_started
+      # inference:
+      #   condition: service_started
     environment:
       - DATABASE_URL=postgresql+asyncpg://security:${DB_PASSWORD:-security123}@postgres:5432/security_monitoring
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
@@ -153,7 +151,7 @@ services:
 
   # Prometheus Monitoring
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.45.0
     container_name: security-prometheus
     restart: unless-stopped
     volumes:
@@ -172,7 +170,7 @@ services:
 
   # Grafana Dashboard
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.0.0
     container_name: security-grafana
     restart: unless-stopped
     depends_on:
