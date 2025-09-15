@@ -18,6 +18,7 @@ from detection.motion_detector import MotionZoneDetector
 from tracking.journey_manager import JourneyManager
 from utils.logger import logger
 from storage.door_persistence import DoorPersistence
+from core.state_manager import state_manager
 
 
 app = Flask(__name__)
@@ -107,11 +108,15 @@ def delete_zone(zone_id):
 
 @app.route('/api/events')
 def get_events():
-    """Get recent events from logging system."""
+    """Get recent events from unified state manager."""
     limit = request.args.get('limit', 20, type=int)
     
-    # Get events from our logging system
-    events = logger.get_recent_events(limit)
+    # Get events from state manager first, fallback to logger
+    events = state_manager.get_recent_events(limit)
+    
+    # If no events from state manager, try logger
+    if not events:
+        events = logger.get_recent_events(limit)
     
     # Format events for display
     formatted_events = []
@@ -178,19 +183,22 @@ def get_occupancy():
 
 @app.route('/api/stats')
 def get_stats():
-    """Get enhanced system statistics."""
-    # Get actual active persons count
-    active_persons = 0
-    active_zones = 0
-    active_doors = 0
-    doors_open = 0
-    doors_closed = 0
+    """Get system statistics from unified state manager."""
+    # Get stats from state manager
+    stats = state_manager.get_stats()
     
-    # Try monitor instance first
-    if monitor_instance:
-        if hasattr(monitor_instance, 'journey_manager'):
-            active_persons = len(monitor_instance.journey_manager.persons)
-        if hasattr(monitor_instance, 'zone_detector'):
+    # Return formatted stats for web display
+    return jsonify({
+        'active_zones': stats.get('active_zones', 0),
+        'active_persons': stats.get('active_persons', 0),
+        'total_events': stats.get('total_events', 0),
+        'doors_open': stats.get('doors_open', 0),
+        'doors_closed': stats.get('doors_closed', 0),
+        'doors_total': stats.get('doors_total', 0),
+        'system_ready': stats.get('system_ready', False),
+        'calibration_complete': stats.get('calibration_complete', False),
+        'timestamp': stats.get('last_update', datetime.now().isoformat())
+    })
             active_zones = len(monitor_instance.zone_detector.get_zones())
         if hasattr(monitor_instance, 'door_detector'):
             if hasattr(monitor_instance.door_detector, 'doors'):

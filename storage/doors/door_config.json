@@ -1,19 +1,5 @@
 {
   "version": "1.0",
-  "updated": "2025-09-14T21:06:36.121567",
-  "doors": {
-    "test_door_1": {
-      "id": "test_door_1",
-      "bbox": [
-        100,
-        200,
-        80,
-        180
-      ],
-      "confidence": 0.85,
-      "zone": "zone_1",
-      "created": "2025-09-14T21:06:36.121563",
-      "active": true
-    }
-  }
+  "updated": "",
+  "doors": {}
 }

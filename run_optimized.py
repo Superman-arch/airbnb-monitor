@@ -25,6 +25,7 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 from detection.motion_detector import MotionZoneDetector
 from utils.logger import logger
 from storage.door_persistence import DoorPersistence
+from core.state_manager import state_manager
 
 # Try to import inference detector first, fall back to edge detection
 try:
@@ -106,6 +107,10 @@ class OptimizedAirbnbMonitor:
         self.journey_manager = JourneyManager(self.config)
         self.webhook_handler = WebhookHandler(self.config)
         self.video_buffer = CircularVideoBuffer(self.config)
+        
+        # Initialize unified state manager
+        self.state_manager = state_manager
+        self.state_manager.reset()  # Start fresh
         
         # Camera settings
         self.camera = None
@@ -291,6 +296,7 @@ class OptimizedAirbnbMonitor:
         self.start_web_server()
         
         self.running = True
+        self.state_manager.set_system_ready(True)
         
         # Start processing
         self.process_loop_optimized()
@@ -404,12 +410,30 @@ class OptimizedAirbnbMonitor:
             
             # Handle door state change events
             for event in door_events:
+                # Update unified state manager
+                door_id = event.get('door_id', 'unknown')
+                if 'open' in event.get('event', ''):
+                    door_state = 'open'
+                elif 'closed' in event.get('event', ''):
+                    door_state = 'closed'
+                else:
+                    door_state = event.get('current_state', 'unknown')
+                
+                # Update state manager
+                self.state_manager.update_door(
+                    door_id=door_id,
+                    state=door_state,
+                    confidence=event.get('confidence', 0),
+                    bbox=event.get('bbox'),
+                    zone=event.get('zone_id')
+                )
+                
                 if event['event'] in ['door_opened', 'door_closed', 'door_moving', 'door_left_open', 'door_discovered']:
                     # Send door event to specific webhook
                     self.send_door_event(event, frame)
                     door_name = event.get('door_name', event.get('door_id', 'unknown'))
                     log_msg = f"Door event: {door_name} - {event['event']}"
-                    print(log_msg)
+                    logger.log('INFO', log_msg, 'DOOR')
                     if WEB_AVAILABLE:
                         try:
                             broadcast_log(log_msg, 'warning' if 'open' in event['event'] else 'info')
