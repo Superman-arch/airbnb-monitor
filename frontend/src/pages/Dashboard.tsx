@@ -54,7 +54,6 @@ const Dashboard: React.FC = () => {
 
   const [videoZoom, setVideoZoom] = useState(1);
   const [showOverlays, setShowOverlays] = useState(true);
-  const [selectedDoor] = useState<string | null>(null);
   const [alertsExpanded, setAlertsExpanded] = useState(false);
 
   // Calculate real-time metrics
@@ -363,7 +362,6 @@ const Dashboard: React.FC = () => {
                 value={metrics.doorsOpen}
                 icon={<DoorFront />}
                 color="#4CAF50"
-                trend={metrics.doorsOpen > 0 ? 'up' : 'neutral'}
               />
             </Grid>
             
