@@ -114,11 +114,7 @@ function App() {
     }
   }, []);
 
-  const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light';
-    setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
-  };
+  // Theme toggle removed - not needed after routing changes
 
   const currentTheme = theme === 'dark' ? darkTheme : lightTheme;
 

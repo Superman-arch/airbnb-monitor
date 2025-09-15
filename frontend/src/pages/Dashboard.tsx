@@ -50,19 +50,22 @@ import { useMonitoringStore } from '../stores/monitoringStore';
 const Dashboard: React.FC = () => {
   const { stats, events, doors, people, isConnected } = useWebSocket();
   const { data: systemStatus } = useApi('/api/health');
-  const { isRecording, toggleRecording } = useMonitoringStore();
+  const { isRecording, toggleRecording, isPaused, togglePause } = useMonitoringStore();
 
   const [videoZoom, setVideoZoom] = useState(1);
   const [showOverlays, setShowOverlays] = useState(true);
-  const [selectedDoor, setSelectedDoor] = useState<string | null>(null);
+  const [selectedDoor] = useState<string | null>(null);
   const [alertsExpanded, setAlertsExpanded] = useState(false);
 
   // Calculate real-time metrics
   const metrics = {
     fps: stats?.fps || 0,
+    latency: 0, // Add default value
     doorsOpen: doors?.filter(d => d.state === 'open').length || 0,
     doorsClosed: doors?.filter(d => d.state === 'closed').length || 0,
     peopleCount: people?.length || 0,
+    memoryUsage: 0, // Add default value
+    gpuUsage: 0, // Add default value
   };
 
   // Alert calculations
@@ -381,7 +384,6 @@ const Dashboard: React.FC = () => {
                   state: d.state as 'open' | 'closed' | 'unknown',
                   lastChange: '5 mins ago'
                 }))}
-                selectedDoor={selectedDoor}
               />
             </Grid>
 
