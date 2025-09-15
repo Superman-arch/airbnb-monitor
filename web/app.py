@@ -68,6 +68,18 @@ def test():
     })
 
 
+@app.route('/health')
+def health():
+    """Health check endpoint for server monitoring."""
+    return jsonify({
+        'status': 'healthy',
+        'server': 'flask',
+        'timestamp': datetime.now().isoformat(),
+        'monitor_connected': monitor_instance is not None,
+        'state_manager_ready': state_manager.system_ready if monitor_instance else False
+    })
+
+
 @app.route('/api/zones', methods=['GET'])
 def get_zones():
     """Get all zones."""

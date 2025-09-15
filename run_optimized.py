@@ -389,12 +389,31 @@ class OptimizedAirbnbMonitor:
                 print(f"[WEB]   - http://{local_ip}:{port} (from network)")
                 print(f"[WEB]   - http://192.168.86.246:{port} (your Jetson IP)")
                 
-                # Run with SocketIO for WebSocket support (blocking call)
-                print("[WEB] Starting SocketIO server (this will block)...")
-                socketio.run(app, host=host, port=port, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
-                
-                # This line will only be reached if server stops
-                print("[WEB] Flask server stopped")
+                # Try to run with SocketIO for WebSocket support (blocking call)
+                print("[WEB] Attempting to start SocketIO server...")
+                try:
+                    # First set Flask to not show warnings
+                    import logging
+                    log = logging.getLogger('werkzeug')
+                    log.setLevel(logging.ERROR)
+                    
+                    print(f"[WEB] Calling socketio.run() on host={host}, port={port}...")
+                    socketio.run(app, host=host, port=port, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
+                    
+                    # This line will only be reached if server stops
+                    print("[WEB] Flask server stopped normally")
+                    
+                except Exception as e:
+                    print(f"[WEB ERROR] SocketIO failed: {e}")
+                    print("[WEB] Trying fallback: regular Flask app.run()...")
+                    
+                    try:
+                        # Fallback to regular Flask without WebSocket
+                        app.run(host=host, port=port, debug=False, use_reloader=False)
+                        print("[WEB] Flask server (without WebSocket) stopped")
+                    except Exception as e2:
+                        print(f"[WEB ERROR] Flask also failed: {e2}")
+                        raise
                 
             except ImportError as e:
                 print(f"[WEB ERROR] Missing dependencies: {e}")
@@ -412,26 +431,30 @@ class OptimizedAirbnbMonitor:
         self.web_thread = Thread(target=run_web_server, daemon=False)  # Changed to non-daemon
         self.web_thread.start()
         
-        # Give the server a moment to start
+        # Give the server more time to start (Flask can be slow)
         import time
-        print("[WEB] Waiting for server to initialize...")
-        time.sleep(3)
+        print("[WEB] Waiting for server to initialize (this may take up to 10 seconds)...")
         
-        # Check if thread is still alive
-        if not self.web_thread.is_alive():
-            print("[WEB] ✗ Web server thread died immediately")
-            return False
-        
-        # Test if we can actually connect
-        from utils.network_utils import test_connection
-        print("[WEB] Testing connection to localhost:5000...")
-        
-        # Try a few times as server might still be starting
-        for i in range(3):
-            if test_connection('localhost', port, timeout=2):
-                print(f"[WEB] ✓ Successfully connected to web server on port {port}!")
-                return True
+        # First just check if thread is alive
+        for i in range(5):
             time.sleep(1)
+            if not self.web_thread.is_alive():
+                print(f"[WEB] ✗ Web server thread died after {i+1} seconds")
+                return False
+            print(f"[WEB] Thread still alive after {i+1} seconds...")
+        
+        # Thread is alive, now test if we can actually connect
+        from utils.network_utils import test_connection
+        print("[WEB] Thread is running, testing connection to localhost...")
+        
+        # Try more times with longer timeout as Flask might be slow to start
+        for attempt in range(5):
+            if test_connection('localhost', port, timeout=3):
+                print(f"[WEB] ✓ Successfully connected to web server on port {port}!")
+                print(f"[WEB] Connection established after {attempt+1} attempts")
+                return True
+            print(f"[WEB] Connection attempt {attempt+1}/5 failed, retrying...")
+            time.sleep(2)
         
         # If thread is alive but can't connect, something is wrong
         print("[WEB] ⚠️  Web server thread is running but not accepting connections")
