@@ -15,6 +15,15 @@ from threading import Thread, Lock
 from typing import Dict, Any, List, Optional, Tuple
 import os
 
+# Check for web server mode flags
+NO_WEB_MODE = '--no-web' in sys.argv
+SIMPLE_SERVER_MODE = '--simple-server' in sys.argv
+
+if NO_WEB_MODE:
+    print("[INIT] Running in NO-WEB mode (monitoring only, no web interface)")
+elif SIMPLE_SERVER_MODE:
+    print("[INIT] Running with SIMPLE SERVER (fallback web interface)")
+
 # Add the parent directory to the Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -46,24 +55,39 @@ from storage.video_manager import CircularVideoBuffer
 WEB_AVAILABLE = False
 SOCKETIO_AVAILABLE = False
 
-try:
-    import flask
-    import flask_cors
-    WEB_AVAILABLE = True
-    print("[INIT] Flask and Flask-CORS available")
-    
-    # Check SocketIO separately as it might be broken
-    try:
-        import flask_socketio
-        SOCKETIO_AVAILABLE = True
-        print("[INIT] Flask-SocketIO available - WebSocket support enabled")
-    except (ImportError, AttributeError) as e:
-        SOCKETIO_AVAILABLE = False
-        print(f"[INIT] Flask-SocketIO not available ({e}) - using regular Flask")
-        
-except ImportError as e:
-    print(f"[INIT] Web interface not available: {e}")
+if NO_WEB_MODE:
+    print("[INIT] Web interface disabled by --no-web flag")
     WEB_AVAILABLE = False
+elif SIMPLE_SERVER_MODE:
+    print("[INIT] Using simple server instead of Flask")
+    WEB_AVAILABLE = False  # Don't use Flask
+else:
+    # Apply compatibility fixes BEFORE importing Flask
+    try:
+        from utils.flask_compat import fix_flask_imports
+        fix_flask_imports()
+    except Exception as e:
+        print(f"[INIT] Could not apply Flask compatibility fixes: {e}")
+    
+    try:
+        import flask
+        import flask_cors
+        WEB_AVAILABLE = True
+        print("[INIT] Flask and Flask-CORS available")
+        
+        # Check SocketIO separately as it might be broken
+        try:
+            import flask_socketio
+            SOCKETIO_AVAILABLE = True
+            print("[INIT] Flask-SocketIO available - WebSocket support enabled")
+        except (ImportError, AttributeError) as e:
+            SOCKETIO_AVAILABLE = False
+            print(f"[INIT] Flask-SocketIO not available ({e}) - using regular Flask")
+            
+    except ImportError as e:
+        print(f"[INIT] Web interface not available: {e}")
+        print("[INIT] Run with --no-web flag to skip web interface")
+        WEB_AVAILABLE = False
 
 # Create stub functions that will be replaced when web is initialized
 def broadcast_log(msg, level='info'):
@@ -305,15 +329,20 @@ class OptimizedAirbnbMonitor:
         self.webhook_handler.start()
         self.video_buffer.start(self.resolution, self.fps)
         
-        # Start web server
-        web_started = self.start_web_server()
-        if not web_started:
-            print("\n⚠️  WARNING: Web interface failed to start!")
-            print("   You can still use the system but won't have web dashboard access.")
-            print("   To fix: pip3 install flask flask-cors flask-socketio\n")
+        # Start web server (unless --no-web mode)
+        if NO_WEB_MODE:
+            print("\n🚫 Web interface disabled (--no-web mode)")
+            print("   System running in monitoring-only mode\n")
         else:
-            print("\n✅ Web interface is running!")
-            print("   Open your browser and go to http://192.168.86.246:5000\n")
+            web_started = self.start_web_server()
+            if not web_started:
+                print("\n⚠️  WARNING: Web interface failed to start!")
+                print("   You can still use the system but won't have web dashboard access.")
+                print("   To skip web interface, run with: python3 run_optimized.py --no-web")
+                print("   To fix Flask, try: pip3 install --upgrade flask werkzeug\n")
+            else:
+                print("\n✅ Web interface is running!")
+                print("   Open your browser and go to http://192.168.86.246:5000\n")
         
         self.running = True
         self.state_manager.set_system_ready(True)
@@ -323,12 +352,73 @@ class OptimizedAirbnbMonitor:
         
         return True
     
+    def start_simple_server(self):
+        """Start the simple HTTP server as an alternative to Flask."""
+        print("[SIMPLE-SERVER] Starting simple web server...")
+        
+        try:
+            from web.simple_server import run_simple_server
+            
+            # Get port from config
+            web_config = self.config.get('web', {})
+            port = web_config.get('port', 5000)
+            host = web_config.get('host', '0.0.0.0')
+            
+            # Check if port is available
+            from utils.network_utils import is_port_available
+            if not is_port_available(host, port):
+                print(f"[SIMPLE-SERVER ERROR] Port {port} is already in use!")
+                return False
+            
+            # Start the server
+            server, thread = run_simple_server(host=host, port=port)
+            
+            if server and thread:
+                self.web_thread = thread
+                self.web_app = server  # Store server reference
+                
+                # Test connection
+                import time
+                time.sleep(2)  # Give server time to start
+                
+                from utils.network_utils import test_connection
+                if test_connection('localhost', port):
+                    print(f"[SIMPLE-SERVER] ✓ Web interface running at http://localhost:{port}")
+                    
+                    # Get actual IP for remote access
+                    import socket
+                    try:
+                        hostname = socket.gethostname()
+                        local_ip = socket.gethostbyname(hostname)
+                        print(f"[SIMPLE-SERVER]   - Network access: http://{local_ip}:{port}")
+                    except:
+                        pass
+                    
+                    return True
+                else:
+                    print("[SIMPLE-SERVER] Failed to connect to server")
+                    return False
+            else:
+                print("[SIMPLE-SERVER] Failed to start server")
+                return False
+                
+        except Exception as e:
+            print(f"[SIMPLE-SERVER ERROR] Failed to start simple server: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
     def start_web_server(self):
         """Start the Flask web server in a separate thread."""
+        # Check if we should use simple server instead
+        if SIMPLE_SERVER_MODE:
+            return self.start_simple_server()
+        
         if not WEB_AVAILABLE:
             print("[WEB] Flask not installed - web interface disabled")
             print("[WEB] To enable web interface, install dependencies:")
             print("[WEB]   sudo pip3 install flask flask-cors flask-socketio")
+            print("[WEB] Or use --simple-server flag for a basic web interface")
             return False
         
         # Check if port is available
@@ -1056,6 +1146,10 @@ def main():
                        help='Path to configuration file')
     parser.add_argument('--display', action='store_true',
                        help='Show video display (reduces FPS)')
+    parser.add_argument('--no-web', action='store_true',
+                       help='Disable web interface completely')
+    parser.add_argument('--simple-server', action='store_true',
+                       help='Use simple HTTP server instead of Flask (fallback option)')
     
     args = parser.parse_args()
     
