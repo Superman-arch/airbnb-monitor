@@ -63,7 +63,7 @@ RUN mkdir -p storage logs && \
     chown -R security:security /app
 
 # Set environment variables
-ENV PYTHONPATH=/app:$PYTHONPATH \
+ENV PYTHONPATH=/app:${PYTHONPATH:-} \
     PYTHONUNBUFFERED=1 \
     NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \

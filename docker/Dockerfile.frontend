@@ -20,7 +20,6 @@ RUN npm ci --only=production && \
 
 # Copy source code
 COPY frontend/src ./src
-COPY frontend/public ./public
 COPY frontend/index.html ./
 
 # Build the application
