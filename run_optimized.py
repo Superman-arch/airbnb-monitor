@@ -41,24 +41,32 @@ from tracking.journey_manager import JourneyManager
 from notifications.webhook_handler import WebhookHandler
 from storage.video_manager import CircularVideoBuffer
 
-# Import web interface
+# Check if web interface is available but don't import yet to avoid circular imports
 try:
-    from flask import Flask
-    from flask_cors import CORS
-    from flask_socketio import SocketIO
-    from web.app import app, socketio, broadcast_event, broadcast_log, broadcast_stats
+    import flask
+    import flask_cors
+    import flask_socketio
     WEB_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Web interface not available: {e}")
     WEB_AVAILABLE = False
-    # Create functional no-ops that still print to console
-    def broadcast_log(msg, level='info'):
-        print(f"[{level.upper()}] {msg}")
-    def broadcast_stats(stats):
-        pass
-    def broadcast_event(event):
+
+# Create stub functions that will be replaced when web is initialized
+def broadcast_log(msg, level='info'):
+    print(f"[{level.upper()}] {msg}")
+
+def broadcast_stats(stats):
+    pass
+
+def broadcast_event(event):
+    if isinstance(event, dict):
         print(f"Event: {event.get('event', 'unknown')}")
-    socketio = None
+    else:
+        print(f"Event: {event}")
+
+# These will be set when web interface is initialized
+app = None
+socketio = None
 
 
 class OptimizedAirbnbMonitor:
@@ -285,8 +293,30 @@ class OptimizedAirbnbMonitor:
         
         def run_web_server():
             try:
-                # Initialize the web app with monitor instance
+                # Import web components here to avoid circular imports
+                from web.app import app as web_app, socketio as web_socketio
                 from web.app import init_app
+                
+                # Import broadcast functions and update globals
+                global app, socketio, broadcast_event, broadcast_log, broadcast_stats
+                try:
+                    from web.app import broadcast_event as web_broadcast_event
+                    from web.app import broadcast_log as web_broadcast_log
+                    from web.app import broadcast_stats as web_broadcast_stats
+                    
+                    # Update global functions
+                    broadcast_event = web_broadcast_event
+                    broadcast_log = web_broadcast_log
+                    broadcast_stats = web_broadcast_stats
+                except ImportError:
+                    # Keep using stub functions
+                    pass
+                
+                # Set global references
+                app = web_app
+                socketio = web_socketio
+                
+                # Initialize the web app with monitor instance
                 init_app(self.config, monitor=self)
                 
                 # Pass reference to this monitor for frame access
@@ -302,7 +332,6 @@ class OptimizedAirbnbMonitor:
                 print(f"Starting web interface with WebSocket support at http://{host}:{port}")
                 
                 # Run with SocketIO for WebSocket support (blocking call)
-                from web.app import socketio
                 socketio.run(app, host=host, port=port, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
                 
             except Exception as e:
