@@ -43,13 +43,26 @@ from notifications.webhook_handler import WebhookHandler
 from storage.video_manager import CircularVideoBuffer
 
 # Check if web interface is available but don't import yet to avoid circular imports
+WEB_AVAILABLE = False
+SOCKETIO_AVAILABLE = False
+
 try:
     import flask
     import flask_cors
-    import flask_socketio
     WEB_AVAILABLE = True
+    print("[INIT] Flask and Flask-CORS available")
+    
+    # Check SocketIO separately as it might be broken
+    try:
+        import flask_socketio
+        SOCKETIO_AVAILABLE = True
+        print("[INIT] Flask-SocketIO available - WebSocket support enabled")
+    except (ImportError, AttributeError) as e:
+        SOCKETIO_AVAILABLE = False
+        print(f"[INIT] Flask-SocketIO not available ({e}) - using regular Flask")
+        
 except ImportError as e:
-    print(f"Warning: Web interface not available: {e}")
+    print(f"[INIT] Web interface not available: {e}")
     WEB_AVAILABLE = False
 
 # Create stub functions that will be replaced when web is initialized
@@ -335,8 +348,19 @@ class OptimizedAirbnbMonitor:
             try:
                 # Import web components here to avoid circular imports
                 print("[WEB] Importing Flask components...")
-                from web.app import app as web_app, socketio as web_socketio
+                from web.app import app as web_app
                 from web.app import init_app
+                
+                # Try to import socketio if available
+                web_socketio = None
+                if SOCKETIO_AVAILABLE:
+                    try:
+                        from web.app import socketio as web_socketio
+                        print("[WEB] SocketIO imported successfully")
+                    except (ImportError, AttributeError) as e:
+                        print(f"[WEB] SocketIO import failed: {e}")
+                        web_socketio = None
+                
                 print("[WEB] Flask components imported successfully")
                 
                 # Import broadcast functions and update globals
@@ -389,31 +413,27 @@ class OptimizedAirbnbMonitor:
                 print(f"[WEB]   - http://{local_ip}:{port} (from network)")
                 print(f"[WEB]   - http://192.168.86.246:{port} (your Jetson IP)")
                 
-                # Try to run with SocketIO for WebSocket support (blocking call)
-                print("[WEB] Attempting to start SocketIO server...")
-                try:
-                    # First set Flask to not show warnings
-                    import logging
-                    log = logging.getLogger('werkzeug')
-                    log.setLevel(logging.ERROR)
-                    
-                    print(f"[WEB] Calling socketio.run() on host={host}, port={port}...")
-                    socketio.run(app, host=host, port=port, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
-                    
-                    # This line will only be reached if server stops
-                    print("[WEB] Flask server stopped normally")
-                    
-                except Exception as e:
-                    print(f"[WEB ERROR] SocketIO failed: {e}")
-                    print("[WEB] Trying fallback: regular Flask app.run()...")
-                    
+                # Set Flask to not show warnings
+                import logging
+                log = logging.getLogger('werkzeug')
+                log.setLevel(logging.ERROR)
+                
+                # Try to run with SocketIO if available, otherwise use regular Flask
+                if SOCKETIO_AVAILABLE and socketio is not None:
+                    print("[WEB] Starting Flask with SocketIO (WebSocket support)...")
                     try:
-                        # Fallback to regular Flask without WebSocket
+                        print(f"[WEB] Calling socketio.run() on host={host}, port={port}...")
+                        socketio.run(app, host=host, port=port, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
+                        print("[WEB] Flask server with SocketIO stopped normally")
+                    except Exception as e:
+                        print(f"[WEB ERROR] SocketIO failed: {e}")
+                        print("[WEB] Falling back to regular Flask...")
                         app.run(host=host, port=port, debug=False, use_reloader=False)
-                        print("[WEB] Flask server (without WebSocket) stopped")
-                    except Exception as e2:
-                        print(f"[WEB ERROR] Flask also failed: {e2}")
-                        raise
+                else:
+                    print("[WEB] Starting Flask without SocketIO (no WebSocket support)...")
+                    print(f"[WEB] Running app.run() on host={host}, port={port}...")
+                    app.run(host=host, port=port, debug=False, use_reloader=False)
+                    print("[WEB] Flask server stopped normally")
                 
             except ImportError as e:
                 print(f"[WEB ERROR] Missing dependencies: {e}")

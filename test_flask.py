@@ -31,15 +31,21 @@ except ImportError as e:
     print("Install with: pip3 install flask-cors")
     sys.exit(1)
 
-# Test 3: Check Flask-SocketIO
-print("\n[TEST 3] Checking Flask-SocketIO...")
+# Test 3: Check Flask-SocketIO (optional)
+print("\n[TEST 3] Checking Flask-SocketIO (optional)...")
+socketio_available = False
 try:
     import flask_socketio
-    print(f"✓ Flask-SocketIO version: {flask_socketio.__version__}")
+    # Don't check __version__ as it might not exist
+    socketio_available = True
+    print(f"✓ Flask-SocketIO installed")
 except ImportError as e:
-    print(f"✗ Flask-SocketIO not installed: {e}")
-    print("Install with: pip3 install flask-socketio")
-    sys.exit(1)
+    print(f"⚠ Flask-SocketIO not installed: {e}")
+    print("The web interface will work without WebSocket support")
+    print("To add WebSocket support: pip3 install flask-socketio")
+except AttributeError as e:
+    print(f"⚠ Flask-SocketIO is broken: {e}")
+    print("The web interface will work without WebSocket support")
 
 # Test 4: Create minimal Flask app
 print("\n[TEST 4] Creating minimal Flask app...")

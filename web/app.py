@@ -2,7 +2,18 @@
 
 from flask import Flask, render_template, jsonify, request, Response
 from flask_cors import CORS
-from flask_socketio import SocketIO, emit
+
+# Try to import SocketIO but make it optional
+try:
+    from flask_socketio import SocketIO, emit
+    SOCKETIO_AVAILABLE = True
+except (ImportError, AttributeError):
+    SOCKETIO_AVAILABLE = False
+    print("[WEB] SocketIO not available - WebSocket features disabled")
+    # Create dummy emit function
+    def emit(*args, **kwargs):
+        pass
+
 import cv2
 import json
 import base64
@@ -24,7 +35,12 @@ from core.state_manager import state_manager
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'change-this-in-production'
 CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Only create SocketIO if available
+if SOCKETIO_AVAILABLE:
+    socketio = SocketIO(app, cors_allowed_origins="*")
+else:
+    socketio = None
 
 # Global references to system components
 zone_detector = None
