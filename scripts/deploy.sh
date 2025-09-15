@@ -47,8 +47,8 @@ check_prerequisites() {
     fi
     echo -e "${GREEN}✓ Docker installed${NC}"
     
-    # Check Docker Compose
-    if ! command -v docker-compose &> /dev/null; then
+    # Check Docker Compose (v2 plugin)
+    if ! docker compose version &> /dev/null; then
         echo -e "${RED}✗ Docker Compose not installed${NC}"
         exit 1
     fi
@@ -136,14 +136,14 @@ init_database() {
     cd "$PROJECT_ROOT/docker"
     
     # Start only PostgreSQL
-    docker-compose up -d postgres
+    docker compose up -d postgres
     
     # Wait for PostgreSQL to be ready
     echo "Waiting for PostgreSQL to be ready..."
     sleep 10
     
     # Run migrations (if needed)
-    # docker-compose run --rm backend alembic upgrade head
+    # docker compose run --rm backend alembic upgrade head
     
     echo -e "${GREEN}✓ Database initialized${NC}"
 }
@@ -155,16 +155,16 @@ start_services() {
     cd "$PROJECT_ROOT/docker"
     
     # Start all services
-    docker-compose up -d
+    docker compose up -d
     
     # Wait for services to be ready
     echo "Waiting for services to start..."
     sleep 15
     
     # Check service health
-    if docker-compose ps | grep -q "unhealthy"; then
+    if docker compose ps | grep -q "unhealthy"; then
         echo -e "${RED}✗ Some services are unhealthy${NC}"
-        docker-compose ps
+        docker compose ps
         exit 1
     fi
     
@@ -263,9 +263,9 @@ print_access_info() {
     echo "  Grafana: admin / (check .env file)"
     echo ""
     echo "Commands:"
-    echo "  View logs:     docker-compose -f $PROJECT_ROOT/docker/docker-compose.yml logs -f"
-    echo "  Stop services: docker-compose -f $PROJECT_ROOT/docker/docker-compose.yml down"
-    echo "  Restart:       docker-compose -f $PROJECT_ROOT/docker/docker-compose.yml restart"
+    echo "  View logs:     docker compose -f $PROJECT_ROOT/docker/docker-compose.yml logs -f"
+    echo "  Stop services: docker compose -f $PROJECT_ROOT/docker/docker-compose.yml down"
+    echo "  Restart:       docker compose -f $PROJECT_ROOT/docker/docker-compose.yml restart"
     echo ""
     echo -e "${YELLOW}⚠ Remember to:${NC}"
     echo "  1. Change default passwords in .env file"
