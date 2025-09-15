@@ -16,6 +16,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from detection.motion_detector import MotionZoneDetector
 from tracking.journey_manager import JourneyManager
+from utils.logger import logger
+from storage.door_persistence import DoorPersistence
 
 
 app = Flask(__name__)
@@ -29,6 +31,7 @@ journey_manager = None
 monitor_instance = None
 current_frame = None
 frame_lock = threading.Lock()
+door_persistence = DoorPersistence()
 
 
 def init_app(config, monitor=None):
@@ -104,24 +107,49 @@ def delete_zone(zone_id):
 
 @app.route('/api/events')
 def get_events():
-    """Get recent events."""
-    minutes = request.args.get('minutes', 60, type=int)
-    events = []
+    """Get recent events from logging system."""
+    limit = request.args.get('limit', 20, type=int)
     
-    # Try monitor instance first
-    if monitor_instance and hasattr(monitor_instance, 'journey_manager'):
-        try:
-            events = monitor_instance.journey_manager.get_recent_events(minutes)
-        except:
-            events = []
-    # Fallback to global reference
-    elif journey_manager:
-        try:
-            events = journey_manager.get_recent_events(minutes)
-        except:
-            events = []
+    # Get events from our logging system
+    events = logger.get_recent_events(limit)
     
-    return jsonify(events)
+    # Format events for display
+    formatted_events = []
+    for event in events:
+        formatted_event = {
+            'timestamp': event.get('timestamp'),
+            'type': event.get('type'),
+            'priority': event.get('priority', 'normal'),
+            'data': event.get('data', {})
+        }
+        
+        # Add human-readable description
+        if event['type'] == 'DOOR_OPEN':
+            door_id = event['data'].get('door_id', 'unknown')
+            formatted_event['description'] = f"Door {door_id} opened"
+        elif event['type'] == 'DOOR_CLOSED':
+            door_id = event['data'].get('door_id', 'unknown')
+            formatted_event['description'] = f"Door {door_id} closed"
+        elif event['type'] == 'PERSON_DETECTED':
+            zone = event['data'].get('zone', 'unknown')
+            count = event['data'].get('count', 0)
+            formatted_event['description'] = f"{count} person(s) detected in {zone}"
+        else:
+            formatted_event['description'] = event.get('type', 'Unknown event')
+        
+        formatted_events.append(formatted_event)
+    
+    return jsonify(formatted_events)
+
+@app.route('/api/logs')
+def get_logs():
+    """Get recent system logs."""
+    limit = request.args.get('limit', 100, type=int)
+    
+    # Get logs from our logging system
+    logs = logger.get_recent_logs(limit)
+    
+    return jsonify(logs)
 
 
 @app.route('/api/persons/<person_id>/journey')
@@ -192,57 +220,57 @@ def get_stats():
 
 @app.route('/api/doors')
 def get_doors():
-    """Get current door states with enhanced information."""
+    """Get current door states with proper open/closed status."""
     door_states = []
     
     # Try monitor instance
     if monitor_instance and hasattr(monitor_instance, 'door_detector'):
-        # First try to get configured zones to show even without active detections
-        zones = []
-        if hasattr(monitor_instance.door_detector, 'get_zones'):
-            zones = monitor_instance.door_detector.get_zones()
+        detector = monitor_instance.door_detector
         
-        if hasattr(monitor_instance.door_detector, 'get_doors'):
-            doors = monitor_instance.door_detector.get_doors()
-        else:
-            # Handle dictionary of doors
-            doors = monitor_instance.door_detector.doors.values() if isinstance(monitor_instance.door_detector.doors, dict) else monitor_instance.door_detector.doors
-        
-        # If we have zones but no active doors, show zones as configured doors
-        if zones and len(list(doors)) == 0:
-            for zone in zones:
-                zone_dict = zone if isinstance(zone, dict) else zone.to_dict() if hasattr(zone, 'to_dict') else {'id': str(zone)}
+        # Get doors with proper state information
+        if hasattr(detector, 'get_doors_dict'):
+            doors_dict = detector.get_doors_dict()
+            
+            for door_id, door_info in doors_dict.items():
+                # Ensure proper state formatting
+                state = door_info.get('state', 'unknown')
+                if state not in ['open', 'closed']:
+                    state = 'unknown'
+                
                 door_state = {
-                    'door_id': zone_dict.get('id', 'unknown'),
-                    'door_name': zone_dict.get('name', 'Unknown Door'),
-                    'state': 'configured',
-                    'confidence': 0,
-                    'bbox': zone_dict.get('bbox', []),
-                    'zone_id': zone_dict.get('id'),
-                    'spatial_hash': None,
-                    'metadata': {'configured': True}
+                    'door_id': door_id,
+                    'door_name': door_info.get('zone_name') or f"Door {door_id.split('_')[-1]}",
+                    'state': state,
+                    'is_open': state == 'open',
+                    'confidence': door_info.get('confidence', 0),
+                    'bbox': door_info.get('bbox', []),
+                    'zone_id': door_info.get('zone_id'),
+                    'last_change': door_info.get('last_change', datetime.now().isoformat()),
+                    'open_duration': door_info.get('open_duration', '0:00:00')
                 }
                 door_states.append(door_state)
         
-        for door in doors:
-            if hasattr(door, 'to_dict'):
-                door_state = door.to_dict()
-            else:
-                door_state = {
-                    'door_id': door.id,
-                    'state': door.current_state,
-                    'confidence': getattr(door, 'confidence', 0),
-                    'last_change': door.last_change.isoformat() if hasattr(door, 'last_change') else datetime.now().isoformat(),
-                    'bbox': getattr(door, 'bbox', [])
-                }
-            
-            # Add additional useful information
-            door_state['door_name'] = getattr(door, 'zone_name', None) or door_state.get('door_id', 'Unknown')
-            door_state['spatial_hash'] = getattr(door, 'spatial_hash', None)
-            door_state['zone_id'] = getattr(door, 'zone_id', None)
-            door_state['metadata'] = getattr(door, 'metadata', {})
-            
-            door_states.append(door_state)
+        # If no doors detected, load from persistence
+        if not door_states:
+            saved_doors = door_persistence.get_all_doors()
+            for door_id, door_config in saved_doors.items():
+                if door_config.get('active', True):
+                    # Get state from persistence
+                    state_info = door_persistence.door_states.get(door_id, {})
+                    state = state_info.get('state', 'unknown')
+                    
+                    door_state = {
+                        'door_id': door_id,
+                        'door_name': f"Door {door_id.split('_')[-1]}",
+                        'state': state if state in ['open', 'closed'] else 'unknown',
+                        'is_open': state == 'open',
+                        'confidence': door_config.get('confidence', 0),
+                        'bbox': door_config.get('bbox', []),
+                        'zone_id': door_config.get('zone'),
+                        'last_change': state_info.get('last_updated', door_config.get('created', datetime.now().isoformat())),
+                        'open_duration': '0:00:00'
+                    }
+                    door_states.append(door_state)
     
     return jsonify(door_states)
 

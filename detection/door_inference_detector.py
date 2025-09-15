@@ -7,6 +7,10 @@ from datetime import datetime, timedelta
 from collections import deque
 import json
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from storage.door_persistence import DoorPersistence
+from utils.logger import logger
 
 try:
     from inference_sdk import InferenceHTTPClient
@@ -59,7 +63,7 @@ class DoorInferenceDetector:
         # Inference settings
         self.inference_url = door_config.get('inference_url', 'http://localhost:9001')
         self.model_id = door_config.get('model_id', 'is-my-door-open/2')
-        self.confidence_threshold = door_config.get('confidence_threshold', 0.6)
+        self.confidence_threshold = max(0.7, door_config.get('confidence_threshold', 0.7))  # Min 70% confidence
         
         # Temporal filtering (minimal)
         self.state_confirmation_frames = door_config.get('state_confirmation_frames', 2)
@@ -78,6 +82,13 @@ class DoorInferenceDetector:
         # VLM Zone integration
         self.zone_mapper = None
         self._init_zone_mapper()
+        
+        # Persistence
+        self.persistence = DoorPersistence()
+        self._load_saved_doors()
+        
+        # Auto-calibration flag
+        self.auto_calibrated = False
     
     def _init_zone_mapper(self):
         """Initialize the VLM zone mapper."""
@@ -85,10 +96,23 @@ class DoorInferenceDetector:
             from .vlm_zone_mapper import VLMZoneMapper
             self.zone_mapper = VLMZoneMapper(self.config)
             if self.zone_mapper.zones:
-                print(f"Loaded {len(self.zone_mapper.zones)} predefined door zones")
+                logger.log('INFO', f"Loaded {len(self.zone_mapper.zones)} predefined door zones", 'DOOR_DETECTOR')
         except Exception as e:
-            print(f"Zone mapper not available: {e}")
+            logger.log('WARNING', f"Zone mapper not available: {e}", 'DOOR_DETECTOR')
             self.zone_mapper = None
+    
+    def _load_saved_doors(self):
+        """Load previously saved door configurations."""
+        saved_doors = self.persistence.get_all_doors()
+        if saved_doors:
+            for door_id, door_config in saved_doors.items():
+                if door_config.get('active', True):
+                    bbox = tuple(door_config['bbox'])
+                    door = DoorInference(door_id, bbox)
+                    door.confidence = door_config.get('confidence', 0.0)
+                    door.zone_id = door_config.get('zone')
+                    self.doors[door_id] = door
+            logger.log('INFO', f"Loaded {len(self.doors)} saved door configurations", 'DOOR_DETECTOR')
     
     def calibrate_zones(self, frame: np.ndarray) -> Dict[str, Any]:
         """Calibrate door zones using multiple methods."""
@@ -114,28 +138,38 @@ class DoorInferenceDetector:
                 )
                 
                 predictions = result.get('predictions', [])
-                for pred in predictions:
-                    if pred['confidence'] >= self.confidence_threshold:
-                        # Extract and validate detection
-                        center_x = pred['x']
-                        center_y = pred['y']
-                        width = pred['width']
-                        height = pred['height']
+                # Sort by confidence and take only high-confidence detections
+                high_conf_preds = [p for p in predictions if p['confidence'] >= 0.75]
+                high_conf_preds.sort(key=lambda x: x['confidence'], reverse=True)
+                
+                for pred in high_conf_preds[:5]:  # Max 5 doors
+                    # Extract and validate detection
+                    center_x = pred['x']
+                    center_y = pred['y']
+                    width = pred['width']
+                    height = pred['height']
+                    
+                    # Validate dimensions (doors should be taller than wide)
+                    if height >= width * 1.5 and width >= 30 and height >= 60:
+                        x = int(center_x - width / 2)
+                        y = int(center_y - height / 2)
                         
-                        # Validate dimensions (doors should be taller than wide)
-                        if height >= width * 1.2 and width >= 20 and height >= 40:
-                            x = int(center_x - width / 2)
-                            y = int(center_y - height / 2)
-                            
-                            zone = {
-                                'id': f"door_{zones_found + 1}",
-                                'name': f"Door {zones_found + 1}",
-                                'bbox': (x, y, int(width), int(height)),
-                                'confidence': pred['confidence'],
-                                'description': pred.get('class', 'door')
-                            }
-                            zones.append(zone)
-                            zones_found += 1
+                        # Generate consistent ID based on position
+                        door_id = f"door_{int(center_x/100)}_{int(center_y/100)}"
+                        
+                        zone = {
+                            'id': door_id,
+                            'name': f"Door {zones_found + 1}",
+                            'bbox': (x, y, int(width), int(height)),
+                            'confidence': pred['confidence'],
+                            'description': pred.get('class', 'door'),
+                            'state': 'open' if 'open' in pred.get('class', '').lower() else 'closed'
+                        }
+                        zones.append(zone)
+                        zones_found += 1
+                        
+                        # Save to persistence
+                        self.persistence.add_door(door_id, zone['bbox'], zone['confidence'])
             except Exception as e:
                 print(f"Inference detection failed: {e}")
         
@@ -239,8 +273,8 @@ class DoorInferenceDetector:
                 class_name = pred['class']
                 confidence = pred['confidence']
                 
-                # Skip low confidence detections
-                if confidence < self.confidence_threshold:
+                # Skip low confidence detections (min 70%)
+                if confidence < max(0.7, self.confidence_threshold):
                     continue
                 
                 # Validate door dimensions (doors should be taller than wide)
@@ -256,10 +290,13 @@ class DoorInferenceDetector:
                 if x < edge_margin or y < edge_margin or (x + width) > frame.shape[1] - edge_margin or (y + height) > frame.shape[0] - edge_margin:
                     continue
                 
-                # Map class to state
-                if 'open' in class_name.lower():
+                # Map class to state with high confidence
+                is_open = 'open' in class_name.lower()
+                is_closed = 'closed' in class_name.lower()
+                
+                if is_open and confidence >= 0.7:
                     state = 'open'
-                elif 'closed' in class_name.lower():
+                elif is_closed and confidence >= 0.7:
                     state = 'closed'
                 else:
                     state = 'unknown'
@@ -285,6 +322,9 @@ class DoorInferenceDetector:
                         self.doors[door_id].zone_id = zone.id
                         self.doors[door_id].zone_name = zone.name
                     
+                    # Save new door to persistence
+                    self.persistence.add_door(door_id, bbox, confidence, zone.id if zone else None)
+                    
                     # Discovery event
                     events.append({
                         'event': 'door_discovered',
@@ -297,7 +337,7 @@ class DoorInferenceDetector:
                         'confidence': confidence,
                         'event_type': 'door'
                     })
-                    print(f"Discovered {zone_name or door_id}: {state} ({confidence:.0%})")
+                    logger.log('INFO', f"Discovered {zone_name or door_id}: {state} ({confidence:.0%})", 'DOOR_DETECTOR')
                 
                 door = self.doors[door_id]
                 door.confidence = confidence
@@ -327,6 +367,13 @@ class DoorInferenceDetector:
                         door.last_change = datetime.now()
                         door.last_event_time = datetime.now()
                         
+                        # Update persistence
+                        is_open = (state == 'open')
+                        self.persistence.update_door_state(door_id, is_open, confidence)
+                        
+                        # Log door event
+                        logger.log_door_event(door_id, state, confidence, getattr(door, 'zone_id', None))
+                        
                         # Create event
                         event = {
                             'event': f'door_{state}',
@@ -343,7 +390,7 @@ class DoorInferenceDetector:
                         events.append(event)
                         
                         door_display = getattr(door, 'zone_name', None) or door_id
-                        print(f"{door_display}: {door.previous_state} -> {state} ({confidence:.0%})")
+                        logger.log('INFO', f"{door_display}: {door.previous_state} -> {state} ({confidence:.0%})", 'DOOR_DETECTOR')
                         
                         # Reset pending
                         door.pending_state = None
@@ -365,14 +412,14 @@ class DoorInferenceDetector:
                             })
             
         except Exception as e:
-            print(f"Inference error: {e}")
+            logger.log('ERROR', f"Inference error: {e}", 'DOOR_DETECTOR')
             # Server might be down, try to reconnect on next frame
             self.initialized = False
         
         return False, events
     
     def _get_door_id_for_location(self, bbox: Tuple[int, int, int, int]) -> str:
-        """Get door ID based on spatial location."""
+        """Get door ID based on spatial location - consistent across sessions."""
         x, y, w, h = bbox
         center_x = x + w // 2
         center_y = y + h // 2
@@ -387,9 +434,11 @@ class DoorInferenceDetector:
             if abs(center_x - dcenter_x) < 100 and abs(center_y - dcenter_y) < 100:
                 return door_id
         
-        # New door
-        self.door_counter += 1
-        return f"door_{self.door_counter:03d}"
+        # Generate consistent ID based on position
+        # This ensures same door gets same ID across restarts
+        grid_x = center_x // 100
+        grid_y = center_y // 100
+        return f"door_{grid_x}_{grid_y}"
     
     def draw_doors(self, frame: np.ndarray) -> np.ndarray:
         """Draw door overlays with zones."""
@@ -458,6 +507,31 @@ class DoorInferenceDetector:
     def get_doors(self) -> List[DoorInference]:
         """Get list of doors."""
         return list(self.doors.values())
+    
+    def get_doors_dict(self) -> Dict[str, Any]:
+        """Get all detected doors with their current states as dictionary."""
+        doors_dict = {}
+        for door_id, door in self.doors.items():
+            door_info = door.to_dict()
+            
+            # Get the latest state from persistence if available
+            saved_state = self.persistence.door_states.get(door_id, {})
+            if saved_state:
+                # Use saved state if we haven't detected it recently
+                if door.current_state == 'unknown' and 'state' in saved_state:
+                    door_info['state'] = saved_state['state']
+                    door_info['is_open'] = saved_state.get('is_open', False)
+            
+            # Ensure we have open/closed state not just configured
+            if door_info['state'] not in ['open', 'closed']:
+                door_info['state'] = 'unknown'
+                door_info['is_open'] = False
+            else:
+                door_info['is_open'] = (door_info['state'] == 'open')
+            
+            doors_dict[door_id] = door_info
+        
+        return doors_dict
     
     def get_door_states(self) -> Dict[str, str]:
         """Get current door states."""

@@ -23,16 +23,18 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 # Import our modules
 from detection.motion_detector import MotionZoneDetector
+from utils.logger import logger
+from storage.door_persistence import DoorPersistence
 
 # Try to import inference detector first, fall back to edge detection
 try:
     from detection.door_inference_detector import DoorInferenceDetector
     INFERENCE_AVAILABLE = True
-    print("Using Roboflow Inference for door detection")
+    logger.log('INFO', "Using Roboflow Inference for door detection", 'MAIN')
 except ImportError:
     from detection.door_detector import DoorDetector
     INFERENCE_AVAILABLE = False
-    print("Using edge detection for doors (inference not available)")
+    logger.log('WARNING', "Using edge detection for doors (inference not available)", 'MAIN')
 
 from tracking.person_tracker import PersonTracker
 from tracking.journey_manager import JourneyManager
@@ -68,8 +70,8 @@ class OptimizedAirbnbMonitor:
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
         
-        print("Initializing Optimized Airbnb Monitor...")
-        print("Target FPS: 10-15 with door detection")
+        logger.log('INFO', "Initializing Optimized Airbnb Monitor...", 'MAIN')
+        logger.log('INFO', "Target FPS: 10-15 with door detection", 'MAIN')
         
         # Initialize components
         self.zone_detector = MotionZoneDetector(self.config)
@@ -165,8 +167,13 @@ class OptimizedAirbnbMonitor:
     def _auto_calibrate_doors(self):
         """Auto-calibrate door zones on startup."""
         try:
+            # Check if we have saved door configurations first
+            if hasattr(self.door_detector, 'doors') and self.door_detector.doors:
+                logger.log('INFO', f"Using {len(self.door_detector.doors)} saved door configurations", 'MAIN')
+                return True
+            
             # Capture a few frames to get a stable image
-            print("Capturing frames for door calibration...")
+            logger.log('INFO', "Capturing frames for door calibration...", 'MAIN')
             frames = []
             for i in range(5):
                 ret, frame = self.camera.read()
@@ -182,13 +189,23 @@ class OptimizedAirbnbMonitor:
                 with self.frame_lock:
                     self.current_frame = calibration_frame.copy()
                 
-                # Attempt calibration
+                # Attempt auto-calibration
+                if hasattr(self.door_detector, 'auto_calibrate'):
+                    success = self.door_detector.auto_calibrate(calibration_frame)
+                    if success:
+                        logger.log('INFO', f"✓ Auto-calibration successful! {len(self.door_detector.doors)} door(s) configured", 'MAIN')
+                        return True
+                
+                # Fallback to regular calibration
                 if hasattr(self.door_detector, 'calibrate_zones'):
                     result = self.door_detector.calibrate_zones(calibration_frame)
                     
                     if result.get('success'):
                         zones_found = result.get('zones_found', 0)
-                        print(f"✓ Auto-calibration successful! Found {zones_found} door(s)")
+                        logger.log('INFO', f"✓ Calibration successful! Found {zones_found} door(s)", 'MAIN')
+                        
+                        # Log calibration event
+                        logger.log_calibration(result)
                         
                         # Broadcast to web if available
                         if WEB_AVAILABLE:
@@ -196,17 +213,18 @@ class OptimizedAirbnbMonitor:
                                 broadcast_log(f"Auto-calibration complete: {zones_found} doors detected", 'info')
                             except:
                                 pass
+                        return True
                     else:
-                        print(f"Auto-calibration failed: {result.get('error', 'Unknown error')}")
-                        print("Will use fallback edge detection for doors")
+                        logger.log('WARNING', f"Calibration failed: {result.get('error', 'Unknown error')}", 'MAIN')
                 else:
-                    print("Door detector does not support zone calibration")
+                    logger.log('WARNING', "Door detector does not support zone calibration", 'MAIN')
             else:
-                print("Could not capture frames for calibration")
+                logger.log('ERROR', "Could not capture frames for calibration", 'MAIN')
                 
         except Exception as e:
-            print(f"Error during auto-calibration: {e}")
-            print("Continuing with manual door detection...")
+            logger.log('ERROR', f"Error during auto-calibration: {e}", 'MAIN')
+        
+        return False
     
     def start(self):
         """Start the optimized monitoring system."""
@@ -224,8 +242,8 @@ class OptimizedAirbnbMonitor:
         # Initialize door detector (inference needs initialization)
         if hasattr(self.door_detector, 'initialize'):
             if not self.door_detector.initialize():
-                print("Warning: Door detector initialization failed")
-                print("Continuing without door detection...")
+                logger.log('WARNING', "Door detector initialization failed", 'MAIN')
+                logger.log('WARNING', "Continuing without door detection...", 'MAIN')
         
         # Initialize camera
         if not self.initialize_camera():
@@ -234,7 +252,7 @@ class OptimizedAirbnbMonitor:
         
         # Auto-calibrate doors on startup if configured
         if self.config.get('door_detection', {}).get('auto_calibrate_on_startup', True):
-            print("Auto-calibrating door zones on startup...")
+            logger.log('INFO', "Auto-calibrating door zones on startup...", 'MAIN')
             self._auto_calibrate_doors()
         
         # Start door learning phase (only for edge detection without zones)
@@ -243,7 +261,7 @@ class OptimizedAirbnbMonitor:
             if not self.door_detector.get_zones():
                 self.door_detector.start_learning()
             else:
-                print(f"Skipping learning phase - {len(self.door_detector.get_zones())} zones already configured")
+                logger.log('INFO', f"Skipping learning phase - {len(self.door_detector.get_zones())} zones already configured", 'MAIN')
         
         # Start services
         self.webhook_handler.start()
@@ -300,7 +318,7 @@ class OptimizedAirbnbMonitor:
     def process_loop_optimized(self):
         """Optimized processing loop with frame skipping."""
         print("Optimized processing started. Press 'q' to quit")
-        print("Door learning phase: 30 seconds...")
+        logger.log('INFO', "Door learning phase: 30 seconds...", 'MAIN')
         
         # Tracking variables
         last_person_detection = 0
@@ -337,7 +355,7 @@ class OptimizedAirbnbMonitor:
                 
                 if learning_complete and not door_learning_complete:
                     door_learning_complete = True
-                    print(f"Door learning complete! Found {len(self.door_detector.doors)} doors")
+                    logger.log('INFO', f"Door learning complete! Found {len(self.door_detector.doors)} doors", 'MAIN')
                     
                     # Send door discovery events
                     for event in door_events:
@@ -372,7 +390,7 @@ class OptimizedAirbnbMonitor:
                         except Exception as e:
                             # Don't crash on broadcast errors
                             if self.frame_counter % 300 == 0:
-                                print(f"Failed to broadcast door event: {e}")
+                                logger.log('ERROR', f"Failed to broadcast door event: {e}", 'MAIN')
             
             # PERIODIC: Zone detection (every 30 frames)
             if self.frame_counter - last_zone_detection >= self.zone_detect_interval:
@@ -462,7 +480,7 @@ class OptimizedAirbnbMonitor:
                 if key == ord('q'):
                     self.running = False
                 elif key == ord('r'):
-                    print("Resetting door detection...")
+                    logger.log('INFO', "Resetting door detection...", 'MAIN')
                     self.door_detector.reset()
             
             # Frame rate limiting (optional)
@@ -829,7 +847,7 @@ class OptimizedAirbnbMonitor:
         print(f"\nSession Statistics:")
         print(f"  Total frames: {self.frame_counter}")
         print(f"  Average FPS: {self.get_current_fps():.1f}")
-        print(f"  Doors detected: {len(self.door_detector.doors)}")
+        logger.log('INFO', f"  Doors detected: {len(self.door_detector.doors)}", 'STATS')
         
         stats = self.webhook_handler.get_statistics()
         print(f"  Notifications sent: {stats['notifications_sent']}")

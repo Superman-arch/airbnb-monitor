@@ -1,0 +1,8 @@
+{
+  "test_door_1": {
+    "is_open": true,
+    "state": "open",
+    "confidence": 0.9,
+    "last_updated": "2025-09-14T21:06:36.121797"
+  }
+}
