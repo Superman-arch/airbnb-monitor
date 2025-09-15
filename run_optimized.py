@@ -43,13 +43,20 @@ from storage.video_manager import CircularVideoBuffer
 try:
     from flask import Flask
     from flask_cors import CORS
-    from web.app import app, broadcast_event, broadcast_log, broadcast_stats
+    from flask_socketio import SocketIO
+    from web.app import app, socketio, broadcast_event, broadcast_log, broadcast_stats
     WEB_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Web interface not available: {e}")
     WEB_AVAILABLE = False
-    broadcast_log = lambda msg, level='info': None  # No-op if web not available
-    broadcast_stats = lambda stats: None
+    # Create functional no-ops that still print to console
+    def broadcast_log(msg, level='info'):
+        print(f"[{level.upper()}] {msg}")
+    def broadcast_stats(stats):
+        pass
+    def broadcast_event(event):
+        print(f"Event: {event.get('event', 'unknown')}")
+    socketio = None
 
 
 class OptimizedAirbnbMonitor:
@@ -274,10 +281,11 @@ class OptimizedAirbnbMonitor:
                 host = web_config.get('host', '0.0.0.0')
                 port = web_config.get('port', 5000)
                 
-                print(f"Starting web interface at http://{host}:{port}")
+                print(f"Starting web interface with WebSocket support at http://{host}:{port}")
                 
-                # Run Flask app (blocking call)
-                app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
+                # Run with SocketIO for WebSocket support (blocking call)
+                from web.app import socketio
+                socketio.run(app, host=host, port=port, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
                 
             except Exception as e:
                 print(f"Web server error: {e}")
@@ -354,11 +362,17 @@ class OptimizedAirbnbMonitor:
                         try:
                             # Store door event in journey manager for persistence
                             self.journey_manager.store_door_event(event)
+                            # Ensure event type is set
+                            event['event_type'] = 'door'
                             # Broadcast to web clients
                             broadcast_event(event)
+                            # Also send as log
+                            door_name = event.get('door_name', event.get('door_id', 'unknown'))
+                            broadcast_log(f"Door {event['event'].replace('door_', '')}: {door_name}", 'warning' if 'open' in event['event'] else 'info')
                         except Exception as e:
                             # Don't crash on broadcast errors
-                            pass
+                            if self.frame_counter % 300 == 0:
+                                print(f"Failed to broadcast door event: {e}")
             
             # PERIODIC: Zone detection (every 30 frames)
             if self.frame_counter - last_zone_detection >= self.zone_detect_interval:
@@ -389,9 +403,12 @@ class OptimizedAirbnbMonitor:
                             # Broadcast to web interface
                             if WEB_AVAILABLE:
                                 try:
+                                    event['event_type'] = 'person'
                                     broadcast_event(event)
+                                    broadcast_log(f"Person {event['action']}: {event.get('person_id', 'unknown')}", 'warning')
                                 except Exception as e:
-                                    print(f"Failed to broadcast person event: {e}")
+                                    if self.frame_counter % 300 == 0:
+                                        print(f"Failed to broadcast person event: {e}")
             
             # ALWAYS: Record video (if enabled)
             if self.recording_enabled:
@@ -409,8 +426,13 @@ class OptimizedAirbnbMonitor:
             self.update_fps()
             if self.frame_counter % 30 == 0:
                 current_fps = self.get_current_fps()
-                stats_msg = f"FPS: {current_fps:.1f} | Doors: {len(self.door_detector.doors)} | Persons: {active_persons} | Frame: {self.frame_counter}"
+                num_doors = len(self.door_detector.doors) if hasattr(self.door_detector, 'doors') else 0
+                stats_msg = f"FPS: {current_fps:.1f} | Doors: {num_doors} | Persons: {active_persons} | Frame: {self.frame_counter}"
                 print(stats_msg)
+                
+                # Always broadcast stats and log
+                if WEB_AVAILABLE:
+                    broadcast_log(stats_msg, 'info')
                 
                 # Broadcast stats to web interface (with error handling)
                 if WEB_AVAILABLE:
@@ -505,19 +527,41 @@ class OptimizedAirbnbMonitor:
             import psutil
             return int(psutil.virtual_memory().percent)
         except:
-            return 0
+            # Fallback: try reading from /proc/meminfo
+            try:
+                with open('/proc/meminfo', 'r') as f:
+                    lines = f.readlines()
+                    total = int(lines[0].split()[1])
+                    available = int(lines[2].split()[1])
+                    used_percent = int(((total - available) / total) * 100)
+                    return used_percent
+            except:
+                return 0
     
     def _get_gpu_usage(self) -> int:
         """Get GPU usage percentage (Jetson specific)."""
         try:
-            # Try to read Jetson GPU stats
+            # Try nvidia-smi first (for desktop GPUs)
             import subprocess
-            result = subprocess.run(['tegrastats'], capture_output=True, text=True, timeout=0.1)
-            # Parse tegrastats output for GPU usage
-            # This is a simplified approach - real parsing would be more complex
-            return 30  # Placeholder - implement actual parsing if needed
+            result = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'], 
+                                  capture_output=True, text=True, timeout=0.5)
+            if result.returncode == 0:
+                return int(result.stdout.strip())
         except:
-            return 0
+            pass
+        
+        try:
+            # Try Jetson-specific tegrastats
+            import subprocess
+            result = subprocess.run(['cat', '/sys/devices/gpu.0/load'], 
+                                  capture_output=True, text=True, timeout=0.1)
+            if result.returncode == 0:
+                # Value is in per-mille (0-1000), convert to percentage
+                return int(int(result.stdout.strip()) / 10)
+        except:
+            pass
+        
+        return 0  # Return 0 if no GPU stats available
     
     def draw_all_detections(self, frame: np.ndarray, tracked_persons: List[Dict]) -> np.ndarray:
         """Draw comprehensive detection overlays warehouse-style."""

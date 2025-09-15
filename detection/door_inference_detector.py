@@ -91,10 +91,64 @@ class DoorInferenceDetector:
             self.zone_mapper = None
     
     def calibrate_zones(self, frame: np.ndarray) -> Dict[str, Any]:
-        """Calibrate door zones using VLM."""
+        """Calibrate door zones using multiple methods."""
+        import time
+        calibration_start = time.time()
+        zones_found = 0
+        zones = []
+        
+        # Try VLM first if available
         if self.zone_mapper:
-            return self.zone_mapper.calibrate(frame)
-        return {'success': False, 'error': 'Zone mapper not available'}
+            result = self.zone_mapper.calibrate(frame)
+            if result.get('success'):
+                return result
+        
+        # Fallback: Try inference detection
+        if self.initialized and self.client:
+            try:
+                print("Attempting door detection with inference...")
+                # Run inference on the frame
+                result = self.client.infer(
+                    frame,
+                    model_id=self.model_id
+                )
+                
+                predictions = result.get('predictions', [])
+                for pred in predictions:
+                    if pred['confidence'] >= self.confidence_threshold:
+                        # Extract and validate detection
+                        center_x = pred['x']
+                        center_y = pred['y']
+                        width = pred['width']
+                        height = pred['height']
+                        
+                        # Validate dimensions (doors should be taller than wide)
+                        if height >= width * 1.2 and width >= 20 and height >= 40:
+                            x = int(center_x - width / 2)
+                            y = int(center_y - height / 2)
+                            
+                            zone = {
+                                'id': f"door_{zones_found + 1}",
+                                'name': f"Door {zones_found + 1}",
+                                'bbox': (x, y, int(width), int(height)),
+                                'confidence': pred['confidence'],
+                                'description': pred.get('class', 'door')
+                            }
+                            zones.append(zone)
+                            zones_found += 1
+            except Exception as e:
+                print(f"Inference detection failed: {e}")
+        
+        calibration_time = time.time() - calibration_start
+        
+        return {
+            'success': zones_found > 0,
+            'zones_found': zones_found,
+            'zones': zones,
+            'calibration_time': calibration_time,
+            'method': 'inference' if zones_found > 0 else 'none',
+            'error': 'No doors detected' if zones_found == 0 else None
+        }
     
     def get_zones(self) -> List[Dict[str, Any]]:
         """Get all defined zones."""
@@ -187,6 +241,19 @@ class DoorInferenceDetector:
                 
                 # Skip low confidence detections
                 if confidence < self.confidence_threshold:
+                    continue
+                
+                # Validate door dimensions (doors should be taller than wide)
+                if height < width * 1.2:  # Doors are typically at least 1.2x taller than wide
+                    continue
+                
+                # Skip very small detections (likely false positives)
+                if width < 20 or height < 40:
+                    continue
+                
+                # Skip detections at edges (often partial/incorrect)
+                edge_margin = 10
+                if x < edge_margin or y < edge_margin or (x + width) > frame.shape[1] - edge_margin or (y + height) > frame.shape[0] - edge_margin:
                     continue
                 
                 # Map class to state

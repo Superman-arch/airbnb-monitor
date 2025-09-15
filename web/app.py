@@ -377,7 +377,7 @@ def get_door_details(door_id):
             if not door:
                 # Try to find by matching door.id
                 for d in doors_dict.values():
-                    if d.id == door_id:
+                    if d.id == door_id or getattr(d, 'spatial_hash', None) == door_id:
                         door = d
                         break
         
@@ -395,6 +395,71 @@ def get_door_details(door_id):
             return jsonify(door_info)
     
     return jsonify({'error': 'Door not found'}), 404
+
+
+@app.route('/api/doors/<door_id>/history')
+def get_door_history(door_id):
+    """Get history for a specific door."""
+    if not monitor_instance or not hasattr(monitor_instance, 'door_detector'):
+        return jsonify([])
+    
+    if hasattr(monitor_instance.door_detector, 'doors'):
+        doors_dict = monitor_instance.door_detector.doors
+        
+        # Find door
+        door = None
+        if isinstance(doors_dict, dict):
+            door = doors_dict.get(door_id)
+            if not door:
+                for d in doors_dict.values():
+                    if d.id == door_id or getattr(d, 'spatial_hash', None) == door_id:
+                        door = d
+                        break
+        
+        if door and hasattr(door, 'change_history'):
+            # Return last 20 changes
+            history = list(door.change_history)[-20:]
+            return jsonify(history)
+    
+    return jsonify([])
+
+
+@app.route('/api/doors/<door_id>', methods=['DELETE'])
+def delete_door(door_id):
+    """Delete a door."""
+    if not monitor_instance or not hasattr(monitor_instance, 'door_detector'):
+        return jsonify({'success': False, 'error': 'Door detector not available'}), 500
+    
+    if hasattr(monitor_instance.door_detector, 'doors'):
+        doors_dict = monitor_instance.door_detector.doors
+        
+        # Find and delete door
+        if isinstance(doors_dict, dict):
+            if door_id in doors_dict:
+                del doors_dict[door_id]
+                # Save state
+                if hasattr(monitor_instance.door_detector, 'save_door_states'):
+                    monitor_instance.door_detector.save_door_states()
+                
+                # Broadcast update
+                socketio.emit('door_deleted', {'door_id': door_id})
+                
+                return jsonify({'success': True})
+            else:
+                # Try to find by door.id
+                for key, d in list(doors_dict.items()):
+                    if d.id == door_id or getattr(d, 'spatial_hash', None) == door_id:
+                        del doors_dict[key]
+                        # Save state
+                        if hasattr(monitor_instance.door_detector, 'save_door_states'):
+                            monitor_instance.door_detector.save_door_states()
+                        
+                        # Broadcast update
+                        socketio.emit('door_deleted', {'door_id': door_id})
+                        
+                        return jsonify({'success': True})
+    
+    return jsonify({'success': False, 'error': 'Door not found'}), 404
 
 
 @app.route('/api/doors/<door_id>/metadata', methods=['PUT'])
