@@ -23,22 +23,22 @@ python-socketio==5.10.0
 
 # Computer Vision & ML
 opencv-python==4.8.1.78
-numpy==1.24.3
-Pillow==10.1.0
+numpy>=1.26.1  # Updated for onnxruntime-gpu compatibility
+# Pillow==10.1.0  # Pre-installed in L4T
 ultralytics==8.0.200  # YOLOv8
-torch==2.1.0  # For Jetson compatibility
-torchvision==0.16.0
+# torch==2.1.0  # Pre-installed in L4T
+# torchvision==0.16.0  # Pre-installed in L4T
 onnx==1.15.0
-onnxruntime-gpu==1.16.3  # GPU acceleration
+# onnxruntime-gpu==1.16.3  # Pre-installed in L4T
 
 # Video Streaming
 aiortc==1.5.0  # WebRTC
 av==11.0.0  # Video processing
 
 # Monitoring & Logging
-prometheus-client==0.19.0
+# prometheus-client==0.19.0  # Pre-installed in L4T
 structlog==23.2.0
-python-json-logger==2.0.7
+# python-json-logger==2.0.7  # Pre-installed in L4T
 sentry-sdk==1.38.0
 
 # Task Queue
@@ -60,7 +60,6 @@ email-validator==2.1.0
 pytest==7.4.3
 pytest-asyncio==0.21.1
 pytest-cov==4.1.0
-httpx==0.25.2  # For testing
 
 # Development Tools
 black==23.12.0
@@ -71,10 +70,9 @@ pre-commit==3.6.0
 # Utilities
 pendulum==3.0.0  # Better datetime
 orjson==3.9.10  # Fast JSON
-python-multipart==0.0.6
 aiofiles==23.2.1
 tenacity==8.2.3  # Retry logic
-cachetools==5.3.2
+# cachetools==5.3.2  # Pre-installed in L4T
 
 # Jetson Specific (optional - install separately if needed)
 # jetson-stats==4.2.3
