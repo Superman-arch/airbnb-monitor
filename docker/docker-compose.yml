@@ -1,0 +1,221 @@
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: security-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: security_monitoring
+      POSTGRES_USER: security
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-security123}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U security -d security_monitoring"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - security-net
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: security-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - security-net
+
+  # Inference Server (Roboflow)
+  inference:
+    image: roboflow/roboflow-inference-server-gpu:latest
+    container_name: security-inference
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      - ROBOFLOW_API_KEY=${ROBOFLOW_API_KEY:-}
+      - NUM_WORKERS=1
+    ports:
+      - "9001:9001"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - security-net
+
+  # Backend API
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    image: security-backend:latest
+    container_name: security-backend
+    restart: unless-stopped
+    runtime: nvidia
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      inference:
+        condition: service_started
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://security:${DB_PASSWORD:-security123}@postgres:5432/security_monitoring
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-change-this-to-a-long-random-string}
+      - ENVIRONMENT=production
+      - DOOR_INFERENCE_URL=http://inference:9001
+      - WEBHOOK_URL=${WEBHOOK_URL:-}
+      - PERSON_WEBHOOK_URL=${PERSON_WEBHOOK_URL:-}
+      - DOOR_WEBHOOK_URL=${DOOR_WEBHOOK_URL:-}
+      - JETSON_MODE=true
+      - USE_TENSORRT=true
+      - USE_GPU=true
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+    volumes:
+      - ../storage:/app/storage
+      - ../logs:/app/logs
+      - ../config:/app/config:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /dev/video0:/dev/video0  # USB camera
+      # For CSI camera on Jetson:
+      # - /dev/video1:/dev/video1
+    devices:
+      - /dev/video0:/dev/video0
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - security-net
+
+  # Frontend
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    image: security-frontend:latest
+    container_name: security-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://backend:8000
+      - VITE_WS_URL=ws://backend:8000
+    ports:
+      - "3000:80"
+    networks:
+      - security-net
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: security-nginx
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - nginx_cache:/var/cache/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - security-net
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: security-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    networks:
+      - security-net
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: security-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "3001:3000"
+    networks:
+      - security-net
+
+  # Backup Service
+  backup:
+    image: postgres:16-alpine
+    container_name: security-backup
+    depends_on:
+      - postgres
+    volumes:
+      - ./backups:/backups
+      - ./backup.sh:/backup.sh:ro
+    entrypoint: ["/bin/sh"]
+    command: ["-c", "while true; do /backup.sh; sleep 86400; done"]
+    environment:
+      - PGHOST=postgres
+      - PGUSER=security
+      - PGPASSWORD=${DB_PASSWORD:-security123}
+      - PGDATABASE=security_monitoring
+    networks:
+      - security-net
+
+networks:
+  security-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  nginx_cache:

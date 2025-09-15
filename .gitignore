@@ -82,6 +82,8 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+.env.production
+.env.development
 
 # Jupyter Notebooks
 .ipynb_checkpoints/
@@ -98,3 +100,14 @@ instance/
 
 # pyenv
 .python-version
+
+# Node modules
+node_modules/
+frontend/dist/
+frontend/build/
+
+# Docker volumes
+postgres_data/
+redis_data/
+prometheus_data/
+grafana_data/

@@ -1,23 +1,33 @@
-# Airbnb Monitoring System
+# Security Monitoring System v2.0
+## Production-Ready Door Detection & People Tracking for Jetson Orin Nano Super
 
-A comprehensive monitoring system for Airbnb/apartment complexes that automatically detects doors, tracks people movement, and sends real-time notifications.
+A professional-grade security monitoring system designed specifically for hotel and commercial deployments, optimized for NVIDIA Jetson Orin Nano Super hardware.
 
-## Features
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
+![React](https://img.shields.io/badge/react-18.2-blue.svg)
+![Docker](https://img.shields.io/badge/docker-ready-green.svg)
+![Jetson](https://img.shields.io/badge/jetson-optimized-green.svg)
 
-### Core Functionality
-- **Automatic Door Detection**: Uses motion-based zone detection to identify high-traffic areas (doors)
-- **Person Tracking**: Unique ID generation for each person without facial recognition
-- **Journey Tracking**: Tracks person movement across cameras and zones
-- **Real-time Notifications**: N8N webhook integration for instant alerts
-- **48-Hour Video Storage**: Circular buffer system with automatic cleanup
-- **Web Interface**: Configure zones, view live feed, manage settings
+## 🚀 Features
 
-### Technical Features
-- **YOLOv8** for person detection (pre-trained, no custom training needed)
-- **ByteTrack** for real-time multi-person tracking
-- **Motion-based zone detection** (ready for ML upgrade later)
-- **Modular architecture** for easy extension
-- **Jetson Nano optimized** with USB/CSI camera support
+### Core Capabilities
+- **Real-time Door Detection**: ML-powered door state monitoring (open/closed/transitioning)
+- **People Counting & Tracking**: Advanced person detection with journey tracking
+- **Live Video Streaming**: HD video with WebRTC/HLS support and dynamic overlays
+- **Comprehensive Logging**: Multi-level logging with real-time streaming to dashboard
+- **Production Analytics**: FPS, latency, GPU/CPU usage, memory monitoring
+- **Alert System**: Configurable alerts for doors left open, crowding, unauthorized access
+- **Webhook Integration**: Ready for n8n/Zapier integration with separate event webhooks
+
+### Technical Excellence
+- **30+ FPS Performance**: Optimized for Jetson Orin Nano Super
+- **TensorRT Acceleration**: Hardware-accelerated ML inference
+- **PostgreSQL + Redis**: Enterprise-grade data persistence and caching
+- **FastAPI Backend**: Async, high-performance REST API with WebSocket support
+- **React TypeScript Frontend**: Modern, responsive dashboard with real-time updates
+- **Docker Deployment**: One-command production deployment
+- **Prometheus + Grafana**: Professional monitoring and metrics
 
 ## Installation
 
