@@ -1,0 +1,101 @@
+# Airbnb Monitoring System Configuration
+
+# Camera settings
+camera:
+  source: 0  # USB camera index or RTSP URL
+  resolution: [640, 480]  # Reduced for better performance
+  fps: 15  # Reduced for Jetson Nano
+  
+# Detection settings
+detection:
+  mode: "motion"  # "motion" or "ml" (for future custom models)
+  person_model: "yolov8n.pt"  # YOLOv8 nano for Jetson Nano
+  confidence_threshold: 0.45
+  nms_threshold: 0.45
+
+# Tracking settings
+tracking:
+  tracker: "bytetrack"  # or "deepsort" in future
+  track_thresh: 0.25
+  track_buffer: 30
+  match_thresh: 0.8
+  min_box_area: 100
+
+# Zone detection settings
+zones:
+  motion_threshold: 25  # Motion magnitude threshold
+  min_zone_area: 5000  # Minimum area for a zone to be considered
+  auto_detect: true
+  learning_period: 86400  # 24 hours in seconds
+
+# Storage settings
+storage:
+  video_retention_hours: 48
+  segment_duration_minutes: 60
+  video_codec: "mp4v"
+  video_quality: 23  # Lower is better quality
+  snapshot_quality: 85
+  storage_path: "./storage/videos"
+  database_path: "./storage/database.db"
+
+# Notification settings
+notifications:
+  webhook_url: ""  # Set your n8n webhook URL here
+  enabled: true
+  cooldown_seconds: 10  # Minimum time between notifications for same person
+  include_snapshot: true
+  include_journey: true
+  
+# Web interface settings
+web:
+  host: "0.0.0.0"
+  port: 5000
+  debug: false
+  secret_key: "change-this-in-production"
+  
+# Logging
+logging:
+  level: "INFO"
+  file: "./logs/airbnb-monitor.log"
+  max_size_mb: 100
+  backup_count: 5
+
+# Door detection settings (for run_optimized.py)
+door_detection:
+  enabled: true
+  
+  # Inference Server Settings (preferred method)
+  use_inference: true  # Use Roboflow Inference Server
+  inference_url: "http://localhost:9001"  # Local inference server
+  model_id: "is-my-door-open/2"  # Roboflow model ID
+  confidence_threshold: 0.6  # Detection confidence threshold
+  process_every_n_frames: 2  # Process every Nth frame for performance
+  
+  # Temporal filtering (minimal with ML)
+  state_confirmation_frames: 2  # Only 2 frames needed with ML
+  min_seconds_between_changes: 1.0  # 1 second between changes
+  
+  # Edge Detection Settings (fallback if inference unavailable)
+  learning_duration: 30  # Seconds to learn environment
+  learning_fps: 10  # FPS during learning phase
+  min_door_height: 120  # Minimum door height in pixels
+  min_door_width: 30   # Minimum door width
+  max_door_width: 150  # Maximum door width
+  edge_threshold1: 50  # Canny edge threshold 1
+  edge_threshold2: 150  # Canny edge threshold 2
+  change_threshold: 0.3  # 30% change triggers state change
+  min_edge_density: 0.1  # Minimum edge density for valid door
+  closed_threshold: 0.8  # Similarity > 0.8 = door closed
+  open_threshold: 0.2  # Similarity < 0.2 = door open
+  noise_kernel_size: 3  # Gaussian blur kernel size
+
+# VLM Configuration for intelligent zone mapping
+vlm:
+  enabled: true  # VLM enabled for intelligent door detection
+  endpoint: "http://localhost:8080/v1/chat/completions"  # LlamaFile API endpoint
+  model: "Phi-3.5-vision-instruct"  # Using Phi-3.5 Vision via llamafile (2.5GB, optimized for Jetson)
+  timeout: 30  # Seconds to wait for VLM response
+  calibration:
+    auto_calibrate_on_start: true  # Automatically calibrate zones on startup
+    recalibrate_interval: 86400  # Recalibrate every 24 hours (in seconds)
+    save_zone_images: true  # Save cropped images of each detected door zone

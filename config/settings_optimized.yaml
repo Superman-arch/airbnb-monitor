@@ -1,0 +1,135 @@
+# Optimized Configuration for Jetson Nano Super (8GB RAM)
+# Target: 15-20 FPS with door and person detection
+
+# Camera settings - optimized for Jetson Nano 8GB
+camera:
+  source: 0  # USB camera index (change to 1 if needed, or 'csi://0' for CSI camera)
+  resolution: [1280, 720]  # HD resolution - Jetson 8GB can handle this
+  fps: 20  # Target FPS for 8GB model
+
+# Door detection settings
+door_detection:
+  enabled: true
+  auto_calibrate_on_startup: true  # Auto-detect doors when server starts
+  
+  # Inference Server Settings (preferred method)
+  use_inference: true  # Use Roboflow Inference Server
+  inference_url: "http://localhost:9001"  # Local inference server
+  model_id: "is-my-door-open/2"  # Roboflow model ID
+  confidence_threshold: 0.5  # Lower threshold for 8GB model (better detection)
+  process_every_n_frames: 1  # Process every frame - 8GB can handle it
+  
+  # Temporal filtering (minimal with ML)
+  state_confirmation_frames: 2  # Only 2 frames needed with ML
+  min_seconds_between_changes: 1.0  # 1 second between changes
+  
+  # Edge Detection Settings (fallback if inference unavailable)
+  learning_duration: 30  # Seconds to learn environment
+  learning_fps: 10  # FPS during learning phase
+  min_door_height: 120  # Minimum door height in pixels
+  min_door_width: 30   # Minimum door width
+  max_door_width: 150  # Maximum door width
+  edge_threshold1: 50  # Canny edge threshold 1
+  edge_threshold2: 150  # Canny edge threshold 2
+  change_threshold: 0.3  # 30% change triggers state change
+  min_edge_density: 0.1  # Minimum edge density for valid door
+  closed_threshold: 0.8  # Similarity > 0.8 = door closed
+  open_threshold: 0.2  # Similarity < 0.2 = door open
+  noise_kernel_size: 3  # Gaussian blur kernel size
+
+# Person detection settings - optimized for 8GB
+detection:
+  mode: "motion"  # Motion-based zone detection
+  person_model: "yolov8s.pt"  # Small model for better accuracy (8GB can handle)
+  confidence_threshold: 0.45  # Slightly lower for better detection
+  nms_threshold: 0.45
+
+# Tracking settings - optimized for 8GB
+tracking:
+  tracker: "bytetrack"
+  track_thresh: 0.25  # Better tracking with 8GB RAM
+  track_buffer: 30  # Larger buffer for better tracking
+  match_thresh: 0.75
+  min_box_area: 300  # Lower threshold for better detection
+
+# Zone detection settings
+zones:
+  motion_threshold: 25  # More sensitive with 8GB
+  min_zone_area: 5000  # Smaller minimum area for better detection
+  auto_detect: true
+  learning_period: 43200  # 12 hours
+
+# Storage settings - optimized for 8GB
+storage:
+  video_retention_hours: 48  # More retention with 8GB
+  segment_duration_minutes: 60  # Longer segments
+  video_codec: "h264"  # Better codec for Jetson GPU
+  video_quality: 40  # Better quality with 8GB
+  snapshot_quality: 85  # Better quality snapshots
+  storage_path: "./storage/videos"
+  database_path: "./storage/database.db"
+
+# Dual webhook configuration
+notifications:
+  # Default webhook (for backward compatibility)
+  webhook_url: ""  # Set your default n8n webhook URL here
+  
+  # Separate webhooks for different event types
+  person_webhook_url: ""  # Set webhook for person events (entry/exit)
+  door_webhook_url: ""    # Set webhook for door events (open/close)
+  
+  enabled: true
+  cooldown_seconds: 5  # Reduced cooldown for faster notifications
+  include_snapshot: true
+  include_journey: true
+  
+  # Door-specific alerts
+  door_left_open_alert: 300  # Alert if door open > 5 minutes
+  rapid_door_changes_alert: 5  # Alert if door changes > 5 times in 1 minute
+
+# Web interface settings
+web:
+  host: "0.0.0.0"
+  port: 5000
+  debug: false
+  secret_key: "change-this-in-production"
+
+# Display settings (disable for better performance)
+display:
+  enabled: false  # Set to true only for debugging
+  show_fps: true
+  show_doors: true
+  show_persons: true
+  show_zones: false  # Disable zone display for speed
+
+# Performance settings - optimized for Jetson Nano 8GB
+performance:
+  person_detect_interval: 2  # Detect persons every 2 frames (8GB can handle)
+  zone_detect_interval: 20   # Update zones more frequently
+  door_detect_interval: 1    # Check doors every frame
+  use_gpu: true              # Enable GPU acceleration
+  gpu_memory_fraction: 0.7   # Use 70% of GPU memory (5.6GB)
+  num_threads: 4             # Use 4 CPU threads
+  enable_tensorrt: false     # Set to true if TensorRT is installed
+  
+# Logging
+logging:
+  level: "INFO"
+  file: "./logs/airbnb-monitor-optimized.log"
+  max_size_mb: 100  # Larger logs with 8GB
+  backup_count: 5
+
+# VLM Settings (Vision Language Model for door zone mapping)
+vlm:
+  enabled: false  # Set to true if VLM server is running
+  endpoint: "http://localhost:8080/completion"
+  model: "phi-3.5-vision"
+  auto_calibrate: true  # Auto-calibrate zones on startup
+  calibration_timeout: 30  # Timeout for calibration in seconds
+
+# Jetson-specific optimizations
+jetson:
+  use_nvmm_buffers: true  # Use NVIDIA memory buffers
+  enable_jetson_clocks: true  # Max out clocks for performance
+  fan_mode: "max"  # Set fan to max for cooling
+  power_mode: "MAXN"  # Maximum performance mode for 8GB model
