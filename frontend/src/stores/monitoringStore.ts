@@ -2,11 +2,13 @@ import { create } from 'zustand';
 
 interface MonitoringState {
   isRecording: boolean;
+  isPaused: boolean;
   motionDetectionEnabled: boolean;
   alertsEnabled: boolean;
   currentFPS: number;
   systemStatus: 'running' | 'stopped' | 'error';
   toggleRecording: () => void;
+  togglePause: () => void;
   toggleMotionDetection: () => void;
   toggleAlerts: () => void;
   updateFPS: (fps: number) => void;
@@ -15,6 +17,7 @@ interface MonitoringState {
 
 export const useMonitoringStore = create<MonitoringState>((set) => ({
   isRecording: false,
+  isPaused: false,
   motionDetectionEnabled: true,
   alertsEnabled: true,
   currentFPS: 0,
@@ -22,6 +25,10 @@ export const useMonitoringStore = create<MonitoringState>((set) => ({
 
   toggleRecording: () => set((state) => ({ 
     isRecording: !state.isRecording 
+  })),
+
+  togglePause: () => set((state) => ({ 
+    isPaused: !state.isPaused 
   })),
 
   toggleMotionDetection: () => set((state) => ({ 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -17,7 +17,6 @@ import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 
 // Hooks and Services
-import { useWebSocket } from './hooks/useWebSocket';
 import { useAuthStore } from './stores/authStore';
 
 // Create theme
@@ -100,11 +99,11 @@ const queryClient = new QueryClient({
 
 function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const { isAuthenticated, initialize } = useAuthStore();
+  const { checkAuth } = useAuthStore();
 
   useEffect(() => {
     // Initialize auth
-    initialize();
+    checkAuth();
 
     // Load theme preference
     const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
@@ -131,55 +130,18 @@ function App() {
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route
-              path="/"
               element={
                 <ProtectedRoute>
-                  <Layout toggleTheme={toggleTheme} currentTheme={theme}>
-                    <Dashboard />
-                  </Layout>
+                  <Layout />
                 </ProtectedRoute>
               }
-            />
-            <Route
-              path="/doors"
-              element={
-                <ProtectedRoute>
-                  <Layout toggleTheme={toggleTheme} currentTheme={theme}>
-                    <DoorsPage />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/people"
-              element={
-                <ProtectedRoute>
-                  <Layout toggleTheme={toggleTheme} currentTheme={theme}>
-                    <PeoplePage />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/logs"
-              element={
-                <ProtectedRoute>
-                  <Layout toggleTheme={toggleTheme} currentTheme={theme}>
-                    <LogsPage />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <ProtectedRoute>
-                  <Layout toggleTheme={toggleTheme} currentTheme={theme}>
-                    <SettingsPage />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
+            >
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/doors" element={<DoorsPage />} />
+              <Route path="/people" element={<PeoplePage />} />
+              <Route path="/logs" element={<LogsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+            </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Router>
