@@ -418,7 +418,7 @@ const Dashboard: React.FC = () => {
         </Grid>
       </Grid>
 
-      <style jsx global>{`
+      <style>{`
         @keyframes pulse {
           0% {
             opacity: 1;
