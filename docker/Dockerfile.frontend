@@ -12,6 +12,7 @@ WORKDIR /build
 # Copy package files
 COPY frontend/package.json ./
 COPY frontend/tsconfig.json ./
+COPY frontend/tsconfig.node.json ./
 COPY frontend/vite.config.ts ./
 
 # Install dependencies
