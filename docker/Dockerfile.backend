@@ -2,7 +2,7 @@
 # Optimized for Jetson Orin Nano Super
 
 # Stage 1: Builder
-FROM nvcr.io/nvidia/l4t-ml:r35.4.1-py3 AS builder
+FROM nvcr.io/nvidia/l4t-ml:r36.2.0-py3 AS builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -28,7 +28,7 @@ RUN pip3 install --upgrade pip setuptools wheel && \
     pip3 install --no-cache-dir -r requirements.txt
 
 # Stage 2: Runtime
-FROM nvcr.io/nvidia/l4t-ml:r35.4.1-py3
+FROM nvcr.io/nvidia/l4t-ml:r36.2.0-py3
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
@@ -48,7 +48,7 @@ RUN groupadd -r security && useradd -r -g security security
 WORKDIR /app
 
 # Copy Python packages from builder
-COPY --from=builder /usr/local/lib/python3.8/dist-packages /usr/local/lib/python3.8/dist-packages
+COPY --from=builder /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
