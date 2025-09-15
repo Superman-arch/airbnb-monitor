@@ -15,7 +15,7 @@ COPY frontend/tsconfig.json ./
 COPY frontend/vite.config.ts ./
 
 # Install dependencies
-RUN npm ci --only=production && \
+RUN npm install && \
     npm cache clean --force
 
 # Copy source code
