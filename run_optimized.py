@@ -293,7 +293,14 @@ class OptimizedAirbnbMonitor:
         self.video_buffer.start(self.resolution, self.fps)
         
         # Start web server
-        self.start_web_server()
+        web_started = self.start_web_server()
+        if not web_started:
+            print("\n⚠️  WARNING: Web interface failed to start!")
+            print("   You can still use the system but won't have web dashboard access.")
+            print("   To fix: pip3 install flask flask-cors flask-socketio\n")
+        else:
+            print("\n✅ Web interface is running!")
+            print("   Open your browser and go to http://192.168.86.246:5000\n")
         
         self.running = True
         self.state_manager.set_system_ready(True)
@@ -306,14 +313,31 @@ class OptimizedAirbnbMonitor:
     def start_web_server(self):
         """Start the Flask web server in a separate thread."""
         if not WEB_AVAILABLE:
-            print("Web interface not available (Flask not installed)")
-            return
+            print("[WEB] Flask not installed - web interface disabled")
+            print("[WEB] To enable web interface, install dependencies:")
+            print("[WEB]   sudo pip3 install flask flask-cors flask-socketio")
+            return False
+        
+        # Check if port is available
+        from utils.network_utils import is_port_available, get_local_ip
+        web_config = self.config.get('web', {})
+        port = web_config.get('port', 5000)
+        
+        if not is_port_available('0.0.0.0', port):
+            print(f"[WEB ERROR] Port {port} is already in use!")
+            print(f"[WEB ERROR] Another process might be using this port.")
+            print(f"[WEB ERROR] Try: sudo lsof -i :{port}  (to see what's using it)")
+            print(f"[WEB ERROR] Or change the port in config/settings_optimized.yaml")
+            return False
         
         def run_web_server():
+            print("[WEB] Initializing web server...")
             try:
                 # Import web components here to avoid circular imports
+                print("[WEB] Importing Flask components...")
                 from web.app import app as web_app, socketio as web_socketio
                 from web.app import init_app
+                print("[WEB] Flask components imported successfully")
                 
                 # Import broadcast functions and update globals
                 global app, socketio, broadcast_event, broadcast_log, broadcast_stats
@@ -326,7 +350,9 @@ class OptimizedAirbnbMonitor:
                     broadcast_event = web_broadcast_event
                     broadcast_log = web_broadcast_log
                     broadcast_stats = web_broadcast_stats
-                except ImportError:
+                    print("[WEB] Broadcast functions loaded")
+                except ImportError as e:
+                    print(f"[WEB] Warning: Could not import broadcast functions: {e}")
                     # Keep using stub functions
                     pass
                 
@@ -335,6 +361,7 @@ class OptimizedAirbnbMonitor:
                 socketio = web_socketio
                 
                 # Initialize the web app with monitor instance
+                print("[WEB] Initializing app with monitor instance...")
                 init_app(self.config, monitor=self)
                 
                 # Pass reference to this monitor for frame access
@@ -347,20 +374,69 @@ class OptimizedAirbnbMonitor:
                 host = web_config.get('host', '0.0.0.0')
                 port = web_config.get('port', 5000)
                 
-                print(f"Starting web interface with WebSocket support at http://{host}:{port}")
+                # Get actual IP address for display
+                import socket
+                hostname = socket.gethostname()
+                try:
+                    local_ip = socket.gethostbyname(hostname)
+                except:
+                    local_ip = '127.0.0.1'
+                
+                print(f"[WEB] Starting Flask server...")
+                print(f"[WEB] Host: {host}, Port: {port}")
+                print(f"[WEB] Access the dashboard at:")
+                print(f"[WEB]   - http://localhost:{port} (from this machine)")
+                print(f"[WEB]   - http://{local_ip}:{port} (from network)")
+                print(f"[WEB]   - http://192.168.86.246:{port} (your Jetson IP)")
                 
                 # Run with SocketIO for WebSocket support (blocking call)
+                print("[WEB] Starting SocketIO server (this will block)...")
                 socketio.run(app, host=host, port=port, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
                 
+                # This line will only be reached if server stops
+                print("[WEB] Flask server stopped")
+                
+            except ImportError as e:
+                print(f"[WEB ERROR] Missing dependencies: {e}")
+                print("[WEB ERROR] Install with: pip3 install flask flask-cors flask-socketio")
+                return
             except Exception as e:
-                print(f"Web server error: {e}")
+                print(f"[WEB ERROR] Failed to start web server: {e}")
                 import traceback
+                print("[WEB ERROR] Full traceback:")
                 traceback.print_exc()
+                return
         
-        # Start web server in separate thread
-        self.web_thread = Thread(target=run_web_server, daemon=True)
+        # Start web server in separate thread (NOT daemon so it keeps running)
+        print("[WEB] Creating web server thread...")
+        self.web_thread = Thread(target=run_web_server, daemon=False)  # Changed to non-daemon
         self.web_thread.start()
-        print("Web server thread started")
+        
+        # Give the server a moment to start
+        import time
+        print("[WEB] Waiting for server to initialize...")
+        time.sleep(3)
+        
+        # Check if thread is still alive
+        if not self.web_thread.is_alive():
+            print("[WEB] ✗ Web server thread died immediately")
+            return False
+        
+        # Test if we can actually connect
+        from utils.network_utils import test_connection
+        print("[WEB] Testing connection to localhost:5000...")
+        
+        # Try a few times as server might still be starting
+        for i in range(3):
+            if test_connection('localhost', port, timeout=2):
+                print(f"[WEB] ✓ Successfully connected to web server on port {port}!")
+                return True
+            time.sleep(1)
+        
+        # If thread is alive but can't connect, something is wrong
+        print("[WEB] ⚠️  Web server thread is running but not accepting connections")
+        print("[WEB] This might be a Flask initialization issue")
+        return False
     
     def process_loop_optimized(self):
         """Optimized processing loop with frame skipping."""
