@@ -33,7 +33,6 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 
 // Components
-import VideoStream from '../components/VideoStream';
 import VideoStreamWebSocket from '../components/VideoStreamWebSocket';
 import StatsCard from '../components/StatsCard';
 import EventsList from '../components/EventsList';

@@ -27,7 +27,8 @@ export function useApi<T = any>(
     } catch (err) {
       const error = err as AxiosError;
       console.error(`API Error fetching ${url}:`, error.response?.data || error.message);
-      setError(new Error(error.response?.data?.detail || error.message || 'Failed to fetch data'));
+      const errorData = error.response?.data as any;
+      setError(new Error(errorData?.detail || error.message || 'Failed to fetch data'));
     } finally {
       setLoading(false);
     }
