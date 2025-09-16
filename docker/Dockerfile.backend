@@ -47,6 +47,9 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     libegl1 \
     libegl1-mesa \
+    libgles2 \
+    libgles2-mesa \
+    kmod \
     curl \
     v4l-utils \
     udev \

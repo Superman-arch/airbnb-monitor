@@ -69,6 +69,9 @@ async def init_redis():
             password = parsed.password or settings.REDIS_PASSWORD
             db_num = int(parsed.path.lstrip('/')) if parsed.path and parsed.path != '/' else 0
         
+        # Log connection details for debugging (without password)
+        logger.info(f"Connecting to Redis at {host}:{port}, db={db_num}")
+        
         # Create connection pool
         connection_pool = ConnectionPool(
             host=host,
