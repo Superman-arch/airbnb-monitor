@@ -56,6 +56,8 @@ COPY backend/ ./backend/
 COPY detection/ ./detection/
 COPY tracking/ ./tracking/
 COPY notifications/ ./notifications/
+COPY utils/ ./utils/
+COPY storage/ ./storage/
 COPY config/ ./config/
 
 # Create necessary directories
