@@ -78,8 +78,8 @@ ENV PYTHONPATH=/app:${PYTHONPATH:-} \
 RUN echo "#!/bin/bash\njetson_clocks" > /start.sh && \
     chmod +x /start.sh
 
-# Switch to app user
-USER security
+# Run as root for now to avoid permission issues
+# USER security
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

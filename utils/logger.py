@@ -28,8 +28,18 @@ class SystemLogger:
             return
         self.initialized = True
         
-        # Create logs directory
-        os.makedirs('/app/logs', exist_ok=True)
+        # Try to create logs directory, fallback to /tmp if permission denied
+        self.log_dir = '/app/logs'
+        try:
+            os.makedirs(self.log_dir, exist_ok=True)
+        except PermissionError:
+            # Fallback to /tmp if /app/logs is not writable
+            self.log_dir = '/tmp/logs'
+            try:
+                os.makedirs(self.log_dir, exist_ok=True)
+            except:
+                # If even /tmp fails, we'll use console-only logging
+                self.log_dir = None
         
         # Setup file logging with rotation
         self.setup_file_logging()
@@ -55,43 +65,71 @@ class SystemLogger:
         self.app_logger = logging.getLogger('airbnb_monitor')
         self.app_logger.setLevel(logging.DEBUG)
         
-        # Rotating file handler (10MB per file, keep 5 backups)
-        app_handler = logging.handlers.RotatingFileHandler(
-            '/app/logs/monitor.log',
-            maxBytes=10*1024*1024,
-            backupCount=5
-        )
-        app_formatter = logging.Formatter(
+        # Add console handler as primary (always works)
+        console_handler = logging.StreamHandler()
+        console_formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
-        app_handler.setFormatter(app_formatter)
-        self.app_logger.addHandler(app_handler)
+        console_handler.setFormatter(console_formatter)
+        self.app_logger.addHandler(console_handler)
+        
+        # Try to add file handler if we have a writable log directory
+        if self.log_dir:
+            try:
+                app_handler = logging.handlers.RotatingFileHandler(
+                    f'{self.log_dir}/monitor.log',
+                    maxBytes=10*1024*1024,
+                    backupCount=5
+                )
+                app_handler.setFormatter(console_formatter)
+                self.app_logger.addHandler(app_handler)
+            except (PermissionError, OSError) as e:
+                self.app_logger.warning(f"Could not create file handler: {e}. Using console only.")
         
         # Events log (structured JSON)
         self.event_logger = logging.getLogger('events')
         self.event_logger.setLevel(logging.INFO)
         
-        event_handler = logging.handlers.RotatingFileHandler(
-            '/app/logs/events.json',
-            maxBytes=10*1024*1024,
-            backupCount=5
-        )
-        self.event_logger.addHandler(event_handler)
+        # Add console handler for events
+        event_console = logging.StreamHandler()
+        self.event_logger.addHandler(event_console)
+        
+        # Try to add file handler
+        if self.log_dir:
+            try:
+                event_handler = logging.handlers.RotatingFileHandler(
+                    f'{self.log_dir}/events.json',
+                    maxBytes=10*1024*1024,
+                    backupCount=5
+                )
+                self.event_logger.addHandler(event_handler)
+            except (PermissionError, OSError):
+                pass  # Silently fallback to console only
         
         # Door state log
         self.door_logger = logging.getLogger('doors')
         self.door_logger.setLevel(logging.INFO)
         
-        door_handler = logging.handlers.RotatingFileHandler(
-            '/app/logs/doors.log',
-            maxBytes=5*1024*1024,
-            backupCount=3
-        )
+        # Add console handler for doors
+        door_console = logging.StreamHandler()
         door_formatter = logging.Formatter(
             '%(asctime)s - DOOR - %(message)s'
         )
-        door_handler.setFormatter(door_formatter)
-        self.door_logger.addHandler(door_handler)
+        door_console.setFormatter(door_formatter)
+        self.door_logger.addHandler(door_console)
+        
+        # Try to add file handler
+        if self.log_dir:
+            try:
+                door_handler = logging.handlers.RotatingFileHandler(
+                    f'{self.log_dir}/doors.log',
+                    maxBytes=5*1024*1024,
+                    backupCount=3
+                )
+                door_handler.setFormatter(door_formatter)
+                self.door_logger.addHandler(door_handler)
+            except (PermissionError, OSError):
+                pass  # Silently fallback to console only
         
     def log(self, level: str, message: str, component: str = "SYSTEM"):
         """General logging method."""
@@ -181,7 +219,10 @@ class SystemLogger:
         
         cutoff = datetime.now() - timedelta(days=days)
         
-        for log_file in glob.glob('/app/logs/*.log.*'):
+        if not self.log_dir:
+            return
+        
+        for log_file in glob.glob(f'{self.log_dir}/*.log.*'):
             try:
                 mtime = datetime.fromtimestamp(os.path.getmtime(log_file))
                 if mtime < cutoff:
