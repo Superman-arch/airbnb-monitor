@@ -45,6 +45,8 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     libglib2.0-0 \
+    libegl1 \
+    libegl1-mesa \
     curl \
     v4l-utils \
     udev \

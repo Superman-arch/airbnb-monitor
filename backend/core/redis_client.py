@@ -30,13 +30,44 @@ async def init_redis():
         from urllib.parse import urlparse
         
         # Parse Redis URL properly
-        parsed = urlparse(settings.REDIS_URL)
+        # Handle redis://:password@host:port/db format
+        redis_url = settings.REDIS_URL
         
-        # Extract components
-        host = parsed.hostname or 'localhost'
-        port = parsed.port or 6379
-        password = parsed.password or settings.REDIS_PASSWORD
-        db_num = int(parsed.path.lstrip('/')) if parsed.path and parsed.path != '/' else 0
+        # If URL starts with redis://:password, it means no username
+        if redis_url.startswith('redis://:'):
+            # Extract password and rest of URL
+            parts = redis_url.replace('redis://:', '').split('@')
+            if len(parts) == 2:
+                password = parts[0]
+                host_port_db = parts[1]
+                # Parse host:port/db
+                if '/' in host_port_db:
+                    host_port, db_str = host_port_db.rsplit('/', 1)
+                    db_num = int(db_str) if db_str else 0
+                else:
+                    host_port = host_port_db
+                    db_num = 0
+                
+                if ':' in host_port:
+                    host, port_str = host_port.split(':')
+                    port = int(port_str)
+                else:
+                    host = host_port
+                    port = 6379
+            else:
+                # Fallback to default parsing
+                parsed = urlparse(redis_url)
+                host = parsed.hostname or 'localhost'
+                port = parsed.port or 6379
+                password = parsed.password or settings.REDIS_PASSWORD
+                db_num = int(parsed.path.lstrip('/')) if parsed.path and parsed.path != '/' else 0
+        else:
+            # Standard URL format
+            parsed = urlparse(redis_url)
+            host = parsed.hostname or 'localhost'
+            port = parsed.port or 6379
+            password = parsed.password or settings.REDIS_PASSWORD
+            db_num = int(parsed.path.lstrip('/')) if parsed.path and parsed.path != '/' else 0
         
         # Create connection pool
         connection_pool = ConnectionPool(
