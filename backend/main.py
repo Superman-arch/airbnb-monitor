@@ -14,7 +14,7 @@ from typing import Any, Dict
 
 import structlog
 import uvicorn
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -201,7 +201,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 
 # Include routers
-app.include_router(health.router, tags=["Health"])
+app.include_router(health.router, prefix="/api", tags=["Health"])
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(doors.router, prefix="/api/doors", tags=["Doors"])
 app.include_router(people.router, prefix="/api/people", tags=["People"])
@@ -221,6 +221,60 @@ async def root():
         "status": "operational",
         "timestamp": datetime.utcnow().isoformat()
     }
+
+
+# WebSocket endpoint at root level for system updates
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    Main WebSocket endpoint for real-time system updates
+    """
+    await websocket.accept()
+    
+    try:
+        # Send initial connection message
+        await websocket.send_json({
+            "type": "connection",
+            "status": "connected",
+            "message": "Connected to monitoring system",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
+        # Keep connection alive and send periodic updates
+        while True:
+            try:
+                # Get current monitoring status
+                if monitoring_service:
+                    fps = monitoring_service.get_current_fps()
+                else:
+                    fps = 0
+                
+                # Send system stats
+                stats = {
+                    "type": "stats",
+                    "data": {
+                        "fps": fps,
+                        "peopleCount": 0,
+                        "doorsOpen": 0,
+                        "uptime": "00:00:00",
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                }
+                await websocket.send_json(stats)
+                
+                # Wait for next update
+                await asyncio.sleep(1)
+                
+            except Exception as e:
+                logger.error(f"Error sending WebSocket update: {e}")
+                break
+                
+    except WebSocketDisconnect:
+        logger.info("WebSocket client disconnected")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        pass  # WebSocket will be closed automatically
 
 
 if __name__ == "__main__":

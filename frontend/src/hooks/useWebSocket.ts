@@ -27,7 +27,7 @@ interface WebSocketData {
   isConnected: boolean;
 }
 
-export const useWebSocket = (path: string = '/api/streams/ws') => {
+export const useWebSocket = (path: string = '/ws') => {
   const [data, setData] = useState<WebSocketData>({
     stats: {
       fps: 0,

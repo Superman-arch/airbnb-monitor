@@ -22,56 +22,6 @@ logger = structlog.get_logger()
 router = APIRouter()
 
 
-@router.websocket("/ws")
-async def system_websocket(websocket: WebSocket):
-    """
-    Main WebSocket endpoint for system updates
-    """
-    from backend.main import monitoring_service, ws_manager
-    
-    await websocket.accept()
-    client_id = None
-    
-    try:
-        # Send initial connection message
-        await websocket.send_json({
-            "type": "connection",
-            "status": "connected",
-            "message": "Connected to monitoring system",
-            "timestamp": datetime.utcnow().isoformat()
-        })
-        
-        # Keep connection alive and send periodic updates
-        while True:
-            try:
-                # Send system stats
-                stats = {
-                    "type": "stats",
-                    "data": {
-                        "fps": monitoring_service.get_current_fps() if monitoring_service else 0,
-                        "peopleCount": 0,
-                        "doorsOpen": 0,
-                        "uptime": "00:00:00",
-                        "timestamp": datetime.utcnow().isoformat()
-                    }
-                }
-                await websocket.send_json(stats)
-                
-                # Wait for next update
-                await asyncio.sleep(1)
-                
-            except Exception as e:
-                logger.error(f"Error sending WebSocket update: {e}")
-                break
-                
-    except WebSocketDisconnect:
-        logger.info("WebSocket client disconnected")
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-    finally:
-        await websocket.close()
-
-
 @router.websocket("/ws/video")
 async def video_stream_websocket(websocket: WebSocket):
     """
