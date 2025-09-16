@@ -19,10 +19,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from detection.door_inference_detector import DoorInferenceDetector
 from detection.door_detector import DoorDetector
-from tracking.person_tracker import PersonTracker
-from tracking.journey_manager import JourneyManager
 from detection.motion_detector import MotionZoneDetector
 from notifications.webhook_handler import WebhookHandler
+
+# Try to import tracking modules, but allow system to run without them
+try:
+    from tracking.person_tracker import PersonTracker
+    from tracking.journey_manager import JourneyManager
+    TRACKING_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Tracking modules not available: {e}")
+    TRACKING_AVAILABLE = False
+    PersonTracker = None
+    JourneyManager = None
 
 from backend.core.config import Settings
 from backend.websocket.manager import WebSocketManager
@@ -181,11 +190,20 @@ class MonitoringService:
             self.door_detector = DoorDetector(config)
             logger.info("Using edge-based door detection")
         
-        # Initialize person tracker
-        self.person_tracker = PersonTracker(config)
-        
-        # Initialize journey manager
-        self.journey_manager = JourneyManager(config)
+        # Initialize person tracker if available
+        if TRACKING_AVAILABLE:
+            try:
+                self.person_tracker = PersonTracker(config)
+                self.journey_manager = JourneyManager(config)
+                logger.info("Person tracking initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize tracking: {e}")
+                self.person_tracker = None
+                self.journey_manager = None
+        else:
+            logger.warning("Tracking modules not available, person detection disabled")
+            self.person_tracker = None
+            self.journey_manager = None
         
         # Initialize zone detector
         self.zone_detector = MotionZoneDetector(config)
@@ -356,6 +374,10 @@ class MonitoringService:
         Detect and track persons in frame
         """
         try:
+            # Check if tracking is available
+            if not self.person_tracker:
+                return []
+            
             # Detect persons
             persons = self.person_tracker.update(frame)
             

@@ -31,8 +31,8 @@ ultralytics==8.0.200  # YOLOv8
 onnx==1.15.0
 # onnxruntime-gpu==1.16.3  # Pre-installed in L4T
 
-# Tracking dependencies
-lap==0.4.0  # Linear Assignment Problem solver for ByteTracker
+# Tracking dependencies (optional - may fail on ARM64)
+# lap==0.4.0  # Linear Assignment Problem solver for ByteTracker - uncomment if needed
 scipy>=1.9.0  # Required for tracking algorithms
 filterpy==1.4.5  # Kalman filters for tracking
 

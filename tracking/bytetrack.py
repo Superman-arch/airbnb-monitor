@@ -2,8 +2,14 @@
 
 import numpy as np
 from collections import deque
-import lap
-from scipy.spatial.distance import cdist
+
+try:
+    import lap
+    from scipy.spatial.distance import cdist
+    BYTETRACK_AVAILABLE = True
+except ImportError as e:
+    print(f"ByteTrack dependencies not available: {e}")
+    BYTETRACK_AVAILABLE = False
 
 
 class STrack:
@@ -105,6 +111,9 @@ class ByteTracker:
             track_buffer: Frames to keep lost tracks
             min_box_area: Minimum box area
         """
+        if not BYTETRACK_AVAILABLE:
+            raise ImportError("ByteTracker requires lap and scipy. Install with: pip install lap scipy")
+        
         self.track_thresh = track_thresh
         self.match_thresh = match_thresh
         self.track_buffer = track_buffer

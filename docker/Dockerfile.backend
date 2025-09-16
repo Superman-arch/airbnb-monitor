@@ -4,7 +4,7 @@
 # Stage 1: Builder
 FROM nvcr.io/nvidia/l4t-ml:r36.2.0-py3 AS builder
 
-# Install system dependencies
+# Install system dependencies including BLAS/LAPACK for lap
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
@@ -15,6 +15,9 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     python3-dev \
     python3-pip \
+    gfortran \
+    libopenblas-dev \
+    liblapack-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -25,8 +28,9 @@ COPY backend/requirements.txt .
 
 # Install Python dependencies with ARM64 compatibility
 RUN pip3 install --upgrade pip setuptools wheel && \
-    pip3 install --no-cache-dir Cython numpy && \
-    pip3 install --no-cache-dir lap --no-build-isolation && \
+    pip3 install --no-cache-dir Cython numpy scipy && \
+    # Try to install lap, but don't fail if it doesn't work on ARM64
+    (pip3 install --no-cache-dir lap --no-build-isolation || echo "WARNING: lap installation failed, using SimpleTracker fallback") && \
     pip3 install --no-cache-dir -r requirements.txt
 
 # Stage 2: Runtime
