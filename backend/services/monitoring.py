@@ -193,9 +193,15 @@ class MonitoringService:
         # Initialize webhook handler
         self.webhook_handler = WebhookHandler(config)
         
-        # Initialize video processor
-        self.video_processor = VideoProcessor(self.settings)
-        await self.video_processor.start()
+        # Initialize video processor with error handling
+        try:
+            self.video_processor = VideoProcessor(self.settings)
+            await self.video_processor.start()
+            logger.info("Video processor started successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize video processor: {str(e)}")
+            logger.warning("System will continue without video processing")
+            self.video_processor = None
         
         # Initialize overlay renderer
         self.overlay_renderer = OverlayRenderer(self.settings)
@@ -213,6 +219,10 @@ class MonitoringService:
                     continue
                 
                 # Get frame from video processor
+                if not self.video_processor:
+                    await asyncio.sleep(0.1)
+                    continue
+                    
                 frame = await self.video_processor.get_frame()
                 if frame is None:
                     await asyncio.sleep(0.01)
@@ -531,7 +541,12 @@ class MonitoringService:
         Get current processed frame
         """
         async with self.frame_lock:
-            return self.display_frame.copy() if self.display_frame is not None else None
+            if self.display_frame is not None:
+                return self.display_frame.copy()
+            elif self.current_frame is not None:
+                return self.current_frame.copy()
+            else:
+                return None
     
     async def calibrate_doors(self, frame: Optional[np.ndarray] = None) -> Dict[str, Any]:
         """

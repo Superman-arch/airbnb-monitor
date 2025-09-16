@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     CACHE_TTL: int = 300  # 5 minutes default
     
     # Video Settings
+    CAMERA_DEVICE: str = "/dev/video0"  # USB camera device
     VIDEO_RESOLUTION: tuple = (1920, 1080)  # Full HD for Jetson Orin
     VIDEO_FPS: int = 30  # Jetson Orin can handle 30fps
     VIDEO_CODEC: str = "h264"

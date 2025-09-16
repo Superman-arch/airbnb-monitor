@@ -91,6 +91,7 @@ services:
       - USE_GPU=true
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+      - CAMERA_DEVICE=/dev/video0
     volumes:
       - ../storage:/app/storage
       - ../logs:/app/logs

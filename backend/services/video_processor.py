@@ -88,8 +88,13 @@ class VideoProcessor:
         Initialize camera with optimal settings for Jetson
         """
         try:
-            # Determine camera source
-            camera_source = self.settings.VIDEO_RESOLUTION[0] if isinstance(self.settings.VIDEO_RESOLUTION[0], str) else 0
+            # Determine camera source from settings
+            camera_source = getattr(self.settings, 'CAMERA_DEVICE', '/dev/video0')
+            
+            # Convert device path to index if needed
+            if isinstance(camera_source, str) and camera_source.startswith('/dev/video'):
+                camera_index = int(camera_source.replace('/dev/video', ''))
+                camera_source = camera_index
             
             # Check for CSI camera on Jetson
             if self.settings.JETSON_MODE and camera_source == "csi://0":
@@ -98,7 +103,11 @@ class VideoProcessor:
                 self.camera = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
             else:
                 # USB camera
+                logger.info(f"Initializing USB camera at device {camera_source}")
                 self.camera = cv2.VideoCapture(camera_source)
+                
+                if not self.camera.isOpened():
+                    raise RuntimeError(f"Failed to open camera at {camera_source}")
                 
                 # Set camera properties
                 self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.settings.VIDEO_RESOLUTION[0])
@@ -114,9 +123,10 @@ class VideoProcessor:
             # Test camera
             ret, frame = self.camera.read()
             if not ret or frame is None:
-                raise RuntimeError("Cannot read from camera")
+                raise RuntimeError(f"Cannot read from camera at {camera_source}")
             
             logger.info("Camera initialized successfully",
+                       camera_source=camera_source,
                        actual_width=frame.shape[1],
                        actual_height=frame.shape[0])
             
