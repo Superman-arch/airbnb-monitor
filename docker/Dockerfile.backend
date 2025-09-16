@@ -23,8 +23,10 @@ WORKDIR /build
 # Copy requirements
 COPY backend/requirements.txt .
 
-# Install Python dependencies
+# Install Python dependencies with ARM64 compatibility
 RUN pip3 install --upgrade pip setuptools wheel && \
+    pip3 install --no-cache-dir Cython numpy && \
+    pip3 install --no-cache-dir lap --no-build-isolation && \
     pip3 install --no-cache-dir -r requirements.txt
 
 # Stage 2: Runtime

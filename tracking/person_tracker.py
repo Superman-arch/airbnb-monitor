@@ -9,7 +9,14 @@ from datetime import datetime
 import os
 import warnings
 
-from tracking.bytetrack import ByteTracker
+# Try to import ByteTracker, fall back to SimpleTracker if not available
+try:
+    from tracking.bytetrack import ByteTracker
+    TRACKER_AVAILABLE = "ByteTracker"
+except ImportError as e:
+    print(f"ByteTracker not available ({e}), using SimpleTracker fallback")
+    from tracking.simple_tracker import SimpleTracker
+    TRACKER_AVAILABLE = "SimpleTracker"
 
 # Handle PyTorch 2.6+ weights_only security change
 try:
@@ -39,12 +46,23 @@ class PersonTracker:
         
         # Tracking settings
         tracking_config = config.get('tracking', {})
-        self.tracker = ByteTracker(
-            track_thresh=tracking_config.get('track_thresh', 0.25),
-            match_thresh=tracking_config.get('match_thresh', 0.8),
-            track_buffer=tracking_config.get('track_buffer', 30),
-            min_box_area=tracking_config.get('min_box_area', 100)
-        )
+        
+        if TRACKER_AVAILABLE == "ByteTracker":
+            self.tracker = ByteTracker(
+                track_thresh=tracking_config.get('track_thresh', 0.25),
+                match_thresh=tracking_config.get('match_thresh', 0.8),
+                track_buffer=tracking_config.get('track_buffer', 30),
+                min_box_area=tracking_config.get('min_box_area', 100)
+            )
+        else:
+            # Use SimpleTracker as fallback
+            self.tracker = SimpleTracker(
+                max_age=tracking_config.get('track_buffer', 30),
+                min_hits=3,
+                iou_threshold=0.3
+            )
+        
+        print(f"Using tracker: {TRACKER_AVAILABLE}")
         
         self.model = None
         self.person_class_id = 0  # COCO person class
