@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any
 import uuid
 
 from sqlalchemy import (
-    Column, String, Float, Integer, Boolean, Text,
+    Column, String, Float, Integer, Boolean, Text, DateTime,
     ForeignKey, Index, CheckConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB
