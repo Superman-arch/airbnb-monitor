@@ -30,7 +30,7 @@ RUN pip3 install --upgrade pip setuptools wheel && \
 # Stage 2: Runtime
 FROM nvcr.io/nvidia/l4t-ml:r36.2.0-py3
 
-# Install runtime dependencies
+# Install runtime dependencies and video libraries
 RUN apt-get update && apt-get install -y \
     libpq5 \
     ffmpeg \
@@ -40,10 +40,14 @@ RUN apt-get update && apt-get install -y \
     libgomp1 \
     libglib2.0-0 \
     curl \
+    v4l-utils \
+    udev \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app user
-RUN groupadd -r security && useradd -r -g security security
+# Create app user and add to video group for camera access
+RUN groupadd -r security && \
+    useradd -r -g security -G video,plugdev security && \
+    usermod -a -G video security
 
 # Set working directory
 WORKDIR /app
@@ -60,6 +64,10 @@ COPY notifications/ ./notifications/
 COPY utils/ ./utils/
 COPY storage/ ./storage/
 COPY config/ ./config/
+
+# Copy startup script
+COPY docker/startup.sh /startup.sh
+RUN chmod +x /startup.sh
 
 # Create necessary directories and set permissions
 RUN mkdir -p /app/storage /app/logs && \
@@ -78,8 +86,9 @@ ENV PYTHONPATH=/app:${PYTHONPATH:-} \
 RUN echo "#!/bin/bash\njetson_clocks" > /start.sh && \
     chmod +x /start.sh
 
-# Run as root for now to avoid permission issues
-# USER security
+# Run as root for camera device access
+# Note: Running as root for hardware access to /dev/video*
+USER root
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
@@ -88,5 +97,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Expose port
 EXPOSE 8000
 
-# Start command
-CMD ["/bin/bash", "-c", "cd /app && python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1 --loop uvloop"]
+# Start command - use startup script
+CMD ["/startup.sh"]

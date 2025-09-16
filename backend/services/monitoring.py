@@ -193,15 +193,47 @@ class MonitoringService:
         # Initialize webhook handler
         self.webhook_handler = WebhookHandler(config)
         
-        # Initialize video processor with error handling
+        # Initialize video processor with error handling and validation
         try:
+            logger.info("Initializing video processor...")
             self.video_processor = VideoProcessor(self.settings)
+            
+            # Start video processor with validation
             await self.video_processor.start()
-            logger.info("Video processor started successfully")
+            
+            # Validate camera is working
+            logger.info("Validating camera functionality...")
+            test_frame = await self.video_processor.get_snapshot()
+            
+            if test_frame is not None:
+                logger.info("Video processor started and validated successfully",
+                           frame_shape=test_frame.shape,
+                           frame_size=f"{test_frame.shape[1]}x{test_frame.shape[0]}")
+                
+                # Send startup notification
+                await self.ws_manager.broadcast_event("camera_initialized", {
+                    "status": "connected",
+                    "resolution": f"{test_frame.shape[1]}x{test_frame.shape[0]}",
+                    "message": "Camera initialized successfully"
+                })
+            else:
+                logger.warning("Video processor started but no frames available")
+                await self.ws_manager.broadcast_event("camera_warning", {
+                    "status": "degraded",
+                    "message": "Camera started but frames not available"
+                })
+                
         except Exception as e:
             logger.error(f"Failed to initialize video processor: {str(e)}")
             logger.warning("System will continue without video processing")
             self.video_processor = None
+            
+            # Send error notification
+            await self.ws_manager.broadcast_event("camera_error", {
+                "status": "failed",
+                "error": str(e),
+                "message": "Failed to initialize camera"
+            })
         
         # Initialize overlay renderer
         self.overlay_renderer = OverlayRenderer(self.settings)

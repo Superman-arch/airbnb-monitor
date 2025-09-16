@@ -34,6 +34,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 // Components
 import VideoStream from '../components/VideoStream';
+import VideoStreamWebSocket from '../components/VideoStreamWebSocket';
 import StatsCard from '../components/StatsCard';
 import EventsList from '../components/EventsList';
 import DoorsOverview from '../components/DoorsOverview';
@@ -211,7 +212,7 @@ const Dashboard: React.FC = () => {
         <Grid item xs={12} lg={8}>
           <Card sx={{ height: '600px', position: 'relative' }}>
             <CardContent sx={{ p: 0, height: '100%', position: 'relative' }}>
-              <VideoStream />
+              <VideoStreamWebSocket />
               
               {/* Video Controls Overlay */}
               <Box

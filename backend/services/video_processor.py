@@ -11,6 +11,7 @@ from threading import Thread, Lock
 from queue import Queue, Empty
 import structlog
 
+import os
 from backend.core.config import Settings
 
 logger = structlog.get_logger()
@@ -40,31 +41,60 @@ class VideoProcessor:
         self.video_writer = None
         self.recording = False
         
+        # Camera initialization settings
+        self.camera_init_timeout = int(os.environ.get('CAMERA_INIT_TIMEOUT', '30'))
+        self.camera_retry_count = int(os.environ.get('CAMERA_RETRY_COUNT', '5'))
+        self.camera_device_fallbacks = ['/dev/video0', '/dev/video1', 0, 1]  # Try multiple devices
+        
     async def start(self):
         """
-        Start video capture
+        Start video capture with retry logic
         """
-        try:
-            # Initialize camera
-            if not self._init_camera():
-                raise RuntimeError("Failed to initialize camera")
-            
-            # Start capture thread
-            self.running = True
-            self.capture_thread = Thread(target=self._capture_loop, daemon=True)
-            self.capture_thread.start()
-            
-            # Start recording if enabled
-            if self.settings.ENVIRONMENT == "production":
-                self._start_recording()
-            
-            logger.info("Video processor started", 
-                       resolution=self.settings.VIDEO_RESOLUTION,
-                       fps=self.settings.VIDEO_FPS)
-            
-        except Exception as e:
-            logger.error(f"Failed to start video processor", error=str(e))
-            raise
+        last_error = None
+        
+        for attempt in range(self.camera_retry_count):
+            try:
+                logger.info(f"Attempting to start video processor (attempt {attempt + 1}/{self.camera_retry_count})")
+                
+                # Initialize camera with timeout
+                if await self._init_camera_with_timeout():
+                    # Start capture thread
+                    self.running = True
+                    self.capture_thread = Thread(target=self._capture_loop, daemon=True)
+                    self.capture_thread.start()
+                    
+                    # Verify camera is working
+                    await asyncio.sleep(1)  # Give camera time to start
+                    test_frame = await self.get_snapshot()
+                    if test_frame is None:
+                        raise RuntimeError("Camera started but no frames available")
+                    
+                    # Start recording if enabled
+                    if self.settings.ENVIRONMENT == "production":
+                        self._start_recording()
+                    
+                    logger.info("Video processor started successfully", 
+                               resolution=self.settings.VIDEO_RESOLUTION,
+                               fps=self.settings.VIDEO_FPS,
+                               device=self.camera_source_used)
+                    return
+                
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Camera initialization attempt {attempt + 1} failed", error=str(e))
+                
+                # Clean up failed attempt
+                if self.camera:
+                    self.camera.release()
+                    self.camera = None
+                
+                if attempt < self.camera_retry_count - 1:
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+        
+        # All attempts failed
+        error_msg = f"Failed to start video processor after {self.camera_retry_count} attempts"
+        logger.error(error_msg, last_error=str(last_error))
+        raise RuntimeError(f"{error_msg}: {last_error}")
     
     async def stop(self):
         """
@@ -83,58 +113,109 @@ class VideoProcessor:
         
         logger.info("Video processor stopped")
     
+    async def _init_camera_with_timeout(self) -> bool:
+        """
+        Initialize camera with timeout
+        """
+        try:
+            # Run camera initialization with timeout
+            return await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(None, self._init_camera),
+                timeout=self.camera_init_timeout
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"Camera initialization timed out after {self.camera_init_timeout} seconds")
+            return False
+        except Exception as e:
+            logger.error(f"Camera initialization failed", error=str(e))
+            return False
+    
     def _init_camera(self) -> bool:
         """
         Initialize camera with optimal settings for Jetson
         """
-        try:
-            # Determine camera source from settings
-            camera_source = getattr(self.settings, 'CAMERA_DEVICE', '/dev/video0')
-            
-            # Convert device path to index if needed
-            if isinstance(camera_source, str) and camera_source.startswith('/dev/video'):
-                camera_index = int(camera_source.replace('/dev/video', ''))
-                camera_source = camera_index
-            
-            # Check for CSI camera on Jetson
-            if self.settings.JETSON_MODE and camera_source == "csi://0":
-                # GStreamer pipeline for CSI camera with hardware acceleration
-                pipeline = self._get_csi_pipeline()
-                self.camera = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
-            else:
-                # USB camera
-                logger.info(f"Initializing USB camera at device {camera_source}")
-                self.camera = cv2.VideoCapture(camera_source)
+        # Try primary device from settings first
+        primary_device = getattr(self.settings, 'CAMERA_DEVICE', '/dev/video0')
+        devices_to_try = [primary_device] + [d for d in self.camera_device_fallbacks if d != primary_device]
+        
+        for camera_source in devices_to_try:
+            try:
+                logger.info(f"Trying camera device: {camera_source}")
                 
-                if not self.camera.isOpened():
-                    raise RuntimeError(f"Failed to open camera at {camera_source}")
+                # Check if device exists (for /dev/video* paths)
+                if isinstance(camera_source, str) and camera_source.startswith('/dev/video'):
+                    import os
+                    if not os.path.exists(camera_source):
+                        logger.debug(f"Device {camera_source} does not exist, skipping")
+                        continue
+                    
+                    # Convert device path to index
+                    camera_index = int(camera_source.replace('/dev/video', ''))
+                    camera_source_to_use = camera_index
+                else:
+                    camera_source_to_use = camera_source
                 
-                # Set camera properties
-                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.settings.VIDEO_RESOLUTION[0])
-                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.settings.VIDEO_RESOLUTION[1])
-                self.camera.set(cv2.CAP_PROP_FPS, self.settings.VIDEO_FPS)
+                # Check for CSI camera on Jetson
+                if self.settings.JETSON_MODE and camera_source == "csi://0":
+                    # GStreamer pipeline for CSI camera with hardware acceleration
+                    pipeline = self._get_csi_pipeline()
+                    self.camera = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+                else:
+                    # USB camera
+                    logger.info(f"Opening camera at index/device {camera_source_to_use}")
+                    self.camera = cv2.VideoCapture(camera_source_to_use)
+                    
+                    if not self.camera.isOpened():
+                        logger.debug(f"Failed to open camera at {camera_source_to_use}")
+                        self.camera = None
+                        continue
+                    
+                    # Set camera properties for USB camera
+                    self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.settings.VIDEO_RESOLUTION[0])
+                    self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.settings.VIDEO_RESOLUTION[1])
+                    self.camera.set(cv2.CAP_PROP_FPS, self.settings.VIDEO_FPS)
+                    
+                    # Set buffer size to reduce latency
+                    self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    
+                    # Use MJPEG for better performance
+                    self.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
                 
-                # Set buffer size to reduce latency
-                self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                # Test camera with multiple attempts
+                for test_attempt in range(3):
+                    ret, frame = self.camera.read()
+                    if ret and frame is not None:
+                        # Get actual camera properties
+                        actual_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        actual_height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        actual_fps = int(self.camera.get(cv2.CAP_PROP_FPS))
+                        
+                        logger.info("Camera initialized successfully",
+                                   camera_source=camera_source,
+                                   actual_width=actual_width,
+                                   actual_height=actual_height,
+                                   actual_fps=actual_fps,
+                                   frame_shape=frame.shape)
+                        
+                        self.camera_source_used = camera_source
+                        return True
+                    
+                    time.sleep(0.5)  # Wait before retry
                 
-                # Use MJPEG for better performance
-                self.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-            
-            # Test camera
-            ret, frame = self.camera.read()
-            if not ret or frame is None:
-                raise RuntimeError(f"Cannot read from camera at {camera_source}")
-            
-            logger.info("Camera initialized successfully",
-                       camera_source=camera_source,
-                       actual_width=frame.shape[1],
-                       actual_height=frame.shape[0])
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Camera initialization failed", error=str(e))
-            return False
+                # Camera opened but couldn't read frames
+                logger.warning(f"Camera at {camera_source} opened but cannot read frames")
+                self.camera.release()
+                self.camera = None
+                
+            except Exception as e:
+                logger.debug(f"Failed to initialize camera {camera_source}", error=str(e))
+                if self.camera:
+                    self.camera.release()
+                    self.camera = None
+                continue
+        
+        logger.error("Failed to initialize any camera device")
+        return False
     
     def _get_csi_pipeline(self) -> str:
         """
@@ -168,24 +249,42 @@ class VideoProcessor:
         Main capture loop running in separate thread
         """
         consecutive_failures = 0
+        reconnect_attempts = 0
+        max_reconnect_attempts = 3
         
         while self.running:
             try:
+                if self.camera is None:
+                    logger.warning("Camera is None in capture loop, attempting to reinitialize")
+                    if reconnect_attempts < max_reconnect_attempts:
+                        time.sleep(2 ** reconnect_attempts)  # Exponential backoff
+                        if self._init_camera():
+                            reconnect_attempts = 0
+                            logger.info("Camera reinitialized successfully in capture loop")
+                        else:
+                            reconnect_attempts += 1
+                            continue
+                    else:
+                        logger.error("Max reconnection attempts reached, stopping capture loop")
+                        break
+                
                 ret, frame = self.camera.read()
                 
                 if ret and frame is not None:
                     # Reset failure counter
                     consecutive_failures = 0
+                    reconnect_attempts = 0
                     
                     # Update last frame
                     with self.frame_lock:
                         self.last_frame = frame.copy()
+                        self.frame_count += 1
                     
                     # Add to queue if not full
                     if not self.frame_queue.full():
                         self.frame_queue.put(frame)
                     else:
-                        # Skip frame if queue is full
+                        # Skip oldest frame if queue is full
                         try:
                             self.frame_queue.get_nowait()
                             self.frame_queue.put(frame)
@@ -202,12 +301,15 @@ class VideoProcessor:
                 else:
                     consecutive_failures += 1
                     if consecutive_failures > 30:  # 1 second at 30fps
-                        logger.error("Camera read failed repeatedly, attempting reconnect")
+                        logger.error(f"Camera read failed {consecutive_failures} times, attempting reconnect")
                         self._reconnect_camera()
                         consecutive_failures = 0
+                    else:
+                        time.sleep(0.033)  # ~30fps timing
                     
             except Exception as e:
-                logger.error(f"Error in capture loop", error=str(e))
+                logger.error(f"Error in capture loop", error=str(e), exc_info=True)
+                consecutive_failures += 1
                 time.sleep(0.1)
     
     def _reconnect_camera(self):
@@ -215,14 +317,27 @@ class VideoProcessor:
         Attempt to reconnect to camera
         """
         try:
+            logger.info("Attempting camera reconnection")
+            
             if self.camera:
                 self.camera.release()
+                self.camera = None
             
-            time.sleep(1)
-            self._init_camera()
+            time.sleep(2)  # Give device time to reset
+            
+            if self._init_camera():
+                logger.info("Camera reconnected successfully")
+                # Clear any old frames from queue
+                while not self.frame_queue.empty():
+                    try:
+                        self.frame_queue.get_nowait()
+                    except Empty:
+                        break
+            else:
+                logger.error("Camera reconnection failed")
             
         except Exception as e:
-            logger.error(f"Camera reconnection failed", error=str(e))
+            logger.error(f"Error during camera reconnection", error=str(e))
     
     def _update_fps(self):
         """

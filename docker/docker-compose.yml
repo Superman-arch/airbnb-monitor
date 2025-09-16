@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   # PostgreSQL Database
   postgres:
@@ -69,6 +71,7 @@ services:
     image: security-backend:latest
     container_name: security-backend
     restart: unless-stopped
+    privileged: true  # Required for full device access
     runtime: nvidia
     depends_on:
       postgres:
@@ -92,16 +95,23 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
       - CAMERA_DEVICE=/dev/video0
+      - CAMERA_INIT_TIMEOUT=30  # Timeout for camera initialization
+      - CAMERA_RETRY_COUNT=5  # Number of retries for camera connection
     volumes:
       - ../storage:/app/storage
       - ../logs:/app/logs
       - ../config:/app/config:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - /dev/video0:/dev/video0  # USB camera
-      # For CSI camera on Jetson:
-      # - /dev/video1:/dev/video1
+      # Mount video devices directly
+      - /dev/video0:/dev/video0:rw
+      - /dev/video1:/dev/video1:rw
+      - /dev/bus/usb:/dev/bus/usb:rw  # For USB camera access
     devices:
-      - /dev/video0:/dev/video0
+      - /dev/video0
+      - /dev/video1
+    group_add:
+      - video  # Add video group for camera access
+      - plugdev  # Add plugdev group for USB devices
     ports:
       - "8000:8000"
     deploy:
@@ -125,8 +135,9 @@ services:
     depends_on:
       - backend
     environment:
-      - VITE_API_URL=http://backend:8000
-      - VITE_WS_URL=ws://backend:8000
+      # Use host IP for API access to ensure proper connectivity
+      - VITE_API_URL=http://localhost:8000
+      - VITE_WS_URL=ws://localhost:8000
     ports:
       - "3000:80"
     networks:
