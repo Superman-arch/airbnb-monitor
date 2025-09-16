@@ -66,7 +66,7 @@ class Zone(Base):
     last_occupied: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     
     # Metadata
-    metadata: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
+    meta_data: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
     tags: Mapped[List[str]] = mapped_column(ARRAY(String), default=list)
     color: Mapped[str] = mapped_column(String(7), default="#3498db")  # Hex color for UI
     
@@ -158,7 +158,7 @@ class ZoneEvent(Base):
     camera_id: Mapped[str] = mapped_column(String(100), nullable=True)
     
     # Additional data
-    metadata: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
+    meta_data: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
     snapshot_url: Mapped[str] = mapped_column(String(500), nullable=True)
     
     # Alert info
@@ -202,7 +202,7 @@ class ZoneConnection(Base):
     access_restricted: Mapped[bool] = mapped_column(Boolean, default=False)
     
     # Metadata
-    metadata: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
+    meta_data: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
     
     # Relationships
     zone_from = relationship("Zone", foreign_keys=[zone_from_id])

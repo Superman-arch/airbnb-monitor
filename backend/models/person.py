@@ -49,7 +49,7 @@ class Person(Base):
     appearance_updated: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     
     # Metadata
-    metadata: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
+    meta_data: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
     tags: Mapped[List[str]] = mapped_column(ARRAY(String), default=list)
     
     # Relationships
@@ -133,7 +133,7 @@ class JourneyPoint(Base):
     
     # Context
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
-    metadata: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
+    meta_data: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
     
     # Relationships
     person = relationship("Person", back_populates="journey_points")
@@ -170,7 +170,7 @@ class PersonEvent(Base):
     
     # Additional data
     duration: Mapped[int] = mapped_column(Integer, nullable=True)  # seconds (for zone dwell time)
-    metadata: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
+    meta_data: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
     snapshot_url: Mapped[str] = mapped_column(String(500), nullable=True)
     
     # Alert info
@@ -222,7 +222,7 @@ class PersonIdentity(Base):
     block_reason: Mapped[str] = mapped_column(String(500), nullable=True)
     
     # Metadata
-    metadata: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
+    meta_data: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
     notes: Mapped[str] = mapped_column(Text, nullable=True)
     
     # Relationships

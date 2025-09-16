@@ -65,7 +65,7 @@ class Door(Base):
     rapid_change_window: Mapped[int] = mapped_column(Integer, default=60)  # seconds
     
     # Metadata
-    metadata: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
+    meta_data: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
     tags: Mapped[List[str]] = mapped_column(ARRAY(String), default=list)
     camera_id: Mapped[str] = mapped_column(String(100), nullable=True)
     floor: Mapped[str] = mapped_column(String(50), nullable=True)
@@ -171,7 +171,7 @@ class DoorEvent(Base):
     
     # Context
     triggered_by: Mapped[str] = mapped_column(String(50), default="system")  # system, manual, schedule
-    metadata: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
+    meta_data: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
     snapshot_url: Mapped[str] = mapped_column(String(500), nullable=True)
     
     # Alert info
@@ -215,7 +215,7 @@ class AccessLog(Base):
     zone_to: Mapped[str] = mapped_column(String(100), nullable=True)
     
     # Metadata
-    metadata: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
+    meta_data: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)
     snapshot_url: Mapped[str] = mapped_column(String(500), nullable=True)
     
     # Authorization
