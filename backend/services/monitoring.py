@@ -332,7 +332,9 @@ class MonitoringService:
         Detect doors in frame
         """
         try:
-            doors = self.door_detector.detect(frame)
+            # process_frame returns (bool, events)
+            _, door_events = self.door_detector.process_frame(frame)
+            doors = door_events  # Use the events as doors
             
             # Process door events
             for door in doors:
@@ -379,7 +381,7 @@ class MonitoringService:
                 return []
             
             # Detect persons
-            persons = self.person_tracker.update(frame)
+            persons = self.person_tracker.detect(frame)
             
             # Update journey tracking
             for person in persons:
@@ -418,7 +420,7 @@ class MonitoringService:
         Detect motion zones
         """
         try:
-            zones = self.zone_detector.detect_motion_zones(frame)
+            zones = self.zone_detector.detect(frame)
             
             # Broadcast zone updates
             for zone in zones:

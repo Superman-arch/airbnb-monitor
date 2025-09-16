@@ -27,16 +27,23 @@ async def init_redis():
     global redis_client, connection_pool
     
     try:
-        # Parse Redis URL
-        url_parts = settings.REDIS_URL.split('/')
-        db_num = int(url_parts[-1]) if len(url_parts) > 3 else 0
+        from urllib.parse import urlparse
+        
+        # Parse Redis URL properly
+        parsed = urlparse(settings.REDIS_URL)
+        
+        # Extract components
+        host = parsed.hostname or 'localhost'
+        port = parsed.port or 6379
+        password = parsed.password or settings.REDIS_PASSWORD
+        db_num = int(parsed.path.lstrip('/')) if parsed.path and parsed.path != '/' else 0
         
         # Create connection pool
         connection_pool = ConnectionPool(
-            host=settings.REDIS_URL.split('//')[1].split(':')[0] if '//' in settings.REDIS_URL else 'localhost',
-            port=int(settings.REDIS_URL.split(':')[-1].split('/')[0]) if ':' in settings.REDIS_URL else 6379,
+            host=host,
+            port=port,
             db=db_num,
-            password=settings.REDIS_PASSWORD,
+            password=password,
             max_connections=settings.REDIS_MAX_CONNECTIONS,
             decode_responses=settings.REDIS_DECODE_RESPONSES,
             socket_keepalive=True,
