@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios, { AxiosError } from 'axios';
 
+// Configure axios defaults
+axios.defaults.baseURL = '';  // Use relative URLs
+
 interface UseApiOptions {
   autoFetch?: boolean;
   pollingInterval?: number;
@@ -23,7 +26,8 @@ export function useApi<T = any>(
       setData(response.data);
     } catch (err) {
       const error = err as AxiosError;
-      setError(new Error(error.message || 'Failed to fetch data'));
+      console.error(`API Error fetching ${url}:`, error.response?.data || error.message);
+      setError(new Error(error.response?.data?.detail || error.message || 'Failed to fetch data'));
     } finally {
       setLoading(false);
     }
