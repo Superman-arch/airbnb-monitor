@@ -49,7 +49,8 @@ storage/clips/
 storage/database.db
 
 # Logs
-logs/
+logs/*
+!logs/.gitkeep
 *.log
 
 # Configuration with sensitive data

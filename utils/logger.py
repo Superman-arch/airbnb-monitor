@@ -4,7 +4,8 @@ import logging
 import logging.handlers
 import json
 import os
-from datetime import datetime
+import glob
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from collections import deque
 import threading
@@ -28,7 +29,7 @@ class SystemLogger:
         self.initialized = True
         
         # Create logs directory
-        os.makedirs('logs', exist_ok=True)
+        os.makedirs('/app/logs', exist_ok=True)
         
         # Setup file logging with rotation
         self.setup_file_logging()
@@ -56,7 +57,7 @@ class SystemLogger:
         
         # Rotating file handler (10MB per file, keep 5 backups)
         app_handler = logging.handlers.RotatingFileHandler(
-            'logs/monitor.log',
+            '/app/logs/monitor.log',
             maxBytes=10*1024*1024,
             backupCount=5
         )
@@ -71,7 +72,7 @@ class SystemLogger:
         self.event_logger.setLevel(logging.INFO)
         
         event_handler = logging.handlers.RotatingFileHandler(
-            'logs/events.json',
+            '/app/logs/events.json',
             maxBytes=10*1024*1024,
             backupCount=5
         )
@@ -82,7 +83,7 @@ class SystemLogger:
         self.door_logger.setLevel(logging.INFO)
         
         door_handler = logging.handlers.RotatingFileHandler(
-            'logs/doors.log',
+            '/app/logs/doors.log',
             maxBytes=5*1024*1024,
             backupCount=3
         )
@@ -180,7 +181,7 @@ class SystemLogger:
         
         cutoff = datetime.now() - timedelta(days=days)
         
-        for log_file in glob.glob('logs/*.log.*'):
+        for log_file in glob.glob('/app/logs/*.log.*'):
             try:
                 mtime = datetime.fromtimestamp(os.path.getmtime(log_file))
                 if mtime < cutoff:

@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     libglib2.0-0 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user
@@ -60,9 +61,10 @@ COPY utils/ ./utils/
 COPY storage/ ./storage/
 COPY config/ ./config/
 
-# Create necessary directories
-RUN mkdir -p storage logs && \
-    chown -R security:security /app
+# Create necessary directories and set permissions
+RUN mkdir -p /app/storage /app/logs && \
+    chown -R security:security /app && \
+    chmod 755 /app/logs /app/storage
 
 # Set environment variables
 ENV PYTHONPATH=/app:${PYTHONPATH:-} \
